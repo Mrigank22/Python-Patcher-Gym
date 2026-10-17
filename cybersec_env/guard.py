@@ -29,6 +29,9 @@ BANNED_IMPORTS = {
     "cybersec_env", "importlib", "ctypes", "marshal", "gc", "inspect",
     "builtins", "subprocess", "socket", "sys", "multiprocessing",
     "pytest", "_pytest", "pickle", "cloudpickle", "dill", "signal",
+    # Reaching another thread's frames (where the grader's inner nonce lives)
+    # needs one of these; a legitimate single-function fix never does.
+    "threading", "_thread", "faulthandler", "gc", "tracemalloc", "_testcapi",
 }
 BANNED_NAMES = {"eval", "exec", "__import__", "globals", "vars", "compile", "input", "breakpoint"}
 BANNED_ATTRS = {

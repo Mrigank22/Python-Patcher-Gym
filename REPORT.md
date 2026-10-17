@@ -74,16 +74,28 @@ For each candidate completion:
 1. **Extract** the function from the model output (```python fence → bare def).
 2. **Guard**: an AST denylist rejects grader-escape constructs before execution
    (§4).
-3. **Execute** the probes in a **sandboxed subprocess**: a fresh throwaway
-   folder is the candidate's working directory, its TEMP and the only place it
-   may write (enforced with a Python audit hook), and it is deleted afterwards.
-   Network access and process spawning are blocked; a wall-clock timeout kills
-   infinite loops. Procedural tasks run Python probe functions; imported tasks
-   run their benchmark's pytest module, with the candidate loaded as the module
-   under test.
-4. **Verdict channel**: the worker must echo a per-call token the candidate never
-   sees; any other output is ignored. An early exit fails the probe instead of
-   killing the worker.
+3. **Execute** the probes in a **two-layer sandbox** (`cybersec_env/sandbox.py`,
+   `_grade_worker.py`):
+   * an **OS jail** — on Linux the worker runs inside bubblewrap with the
+     network namespace emptied (no `connect`/`bind`/DNS at all), the filesystem
+     read-only except a fresh throwaway per-candidate directory that is its cwd
+     and `$TMPDIR`, and pid/ipc/uts unshared. A Python audit hook and POSIX
+     rlimits apply underneath as defence in depth. When bubblewrap is absent
+     (e.g. Windows) the layer degrades to process-only and the audit reports it;
+   * a **fork trust-split** — the worker forks, and candidate code runs in the
+     *child*, which closes the verdict descriptor and stdin before executing any
+     candidate code, and runs the candidate in a worker *thread* so a stack walk
+     cannot reach the child's inner nonce. The *parent* holds the grader nonce
+     and the verdict descriptor and never runs candidate code.
+   Procedural tasks run Python probe functions; imported tasks run their
+   benchmark's pytest module, with the candidate loaded as the module under test.
+   A wall-clock timeout kills infinite loops.
+4. **Verdict channel**: the verdict travels on a **private pipe** (not stdout) and
+   is accepted only if it carries the per-call token the candidate never sees; the
+   child's report to the parent carries a second nonce the candidate cannot read.
+   Every value the candidate returns is reduced to a **trusted primitive**
+   before any probe compares it, so an object with a lying `__eq__` cannot pass.
+   An early exit or a forged write fails the grade instead of faking success.
 5. **Static rubric**: a per-CWE source check (e.g. "query is parameterized"),
    low weight, never sufficient for `solved`.
 6. **Reward**: `solved = all functional ∧ all security probes pass`.
@@ -99,21 +111,37 @@ OpenEnv server, the TRL reward function, the CLI and the tests.
 
 ### 4.1 Audit
 
-`python scripts/hack_audit.py` runs **64 attacks** (8 strategies × 8 families)
-and asserts that **none is scored `solved`** while the genuine oracle still
-scores **1.0**. Result after all changes below: **PASSED**
-([`results/hack_audit.md`](results/hack_audit.md)).
+`python scripts/hack_audit.py [--seeds N]` runs an adversarial battery of **12
+attack strategies across all 8 families** (300+ attempts) and asserts that
+**none is scored `solved`** while the genuine oracle still scores **1.0**.
+Result: **PASSED** ([`results/hack_audit.md`](results/hack_audit.md)). It
+includes the two attacks that *defeated an earlier version of this grader* and
+drove the redesign in §3 (regression-tested in `tests/test_reward_hacks.py`).
 
 | Attack strategy | How it is stopped |
 |---|---|
+| **return an object whose `__eq__` is always True** (one value passes every probe) | return values canonicalised to trusted primitives before comparison |
+| **walk the call stack for the nonce and write a forged "all pass" verdict, then exit** | fork trust-split: candidate holds no nonce and no verdict fd; thread isolation hides the inner nonce |
+| **spray every fd with a count-matched forged verdict, then exit** | verdict nonce + child inner-nonce + probe-count cross-check; a forge without them is discarded |
 | keep the vulnerable code | security probes fail; never solved |
 | break functionality to pass the exploit | functional probes fail; security credit scales with function |
-| import the grader package | guard: `banned_import` |
-| monkeypatch a module attribute (e.g. `os.path.exists`), aliases included | guard: `attribute_assignment` |
-| interpreter introspection | guard: `banned_attribute` |
-| process control / dynamic exec | guard: `banned_import` / `banned_name` |
-| network or subprocess imports | guard: `banned_import`; also blocked at runtime |
-| infinite loop | subprocess timeout → 0 |
+| import the grader package / network / subprocess | guard `banned_import`; also blocked by the OS jail at runtime |
+| monkeypatch a module attribute (aliases included) | guard `attribute_assignment` |
+| interpreter introspection / thread-frame reach | guard `banned_attribute` / `banned_import` (`sys`, `threading`, `gc`, …) |
+| process control / dynamic exec | guard `banned_import` / `banned_name` |
+| infinite loop | wall-clock timeout → 0 |
+
+### 4.1b Mutation test (probe quality)
+
+`python scripts/mutation_test.py` feeds each family realistic *incomplete*
+fixes — the kind a weak model writes — and asserts the probes catch them
+(`solved == False`), plus alternative correct fixes that must score the full
+1.0. Building it found and fixed two real probe blind spots, now covered:
+
+| Family | Blind spot found | Fix |
+|---|---|---|
+| SQLi | a keyword blacklist (`OR`/`DROP`/`;`/`--`) passed the old two probes | added a `union_injection` probe that no blacklist screens |
+| Unsafe deser | `yaml.load(FullLoader)` passed (it blocks the `builtins.open` gadget) | added a `no_python_tag` probe (`!!python/name:…`) that only a true Safe loader rejects; the static rule now also credits `yaml.load(Loader=SafeLoader)` |
 
 ### 4.2 Found by training, then fixed
 
@@ -238,29 +266,46 @@ Result files: `results/compare_final_{proc,spl,cweval}.md`,
 
 ## 8. Threat model & limits (honest)
 
-* The guard is a **denylist** and the sandbox is a Python audit hook plus
-  subprocess isolation: defence in depth, not a formal OS sandbox. For hostile
-  multi-tenant use, run the grader in a locked-down container (the provided
-  Dockerfile runs as an unprivileged user) or gVisor/Firecracker.
+* **Isolation is strong but names one residual.** On Linux the candidate runs
+  in a bubblewrap OS jail (no network, read-only fs) and in a fork trust-split
+  where it shares no process, nonce or verdict channel with the trusted parent;
+  return values are canonicalised; the audit battery (§4.1), including a
+  count-matched fd-spray forge, is fully defeated. The **one residual**: the
+  child still reports *its own* raw probe outcomes to the parent over a pipe, so
+  candidate code that corrupted the child's trusted bookkeeping *before* that
+  write — without exiting (which already fails) and without the inner nonce
+  (which the thread split hides) — could in principle misreport. Removing it
+  entirely requires never running candidate code in the same process as any
+  probe logic, i.e. the **container / patch-and-run** model of the roadmap's
+  codebase track (§10), where tests are driven from outside the container.
+* The guard is a **denylist**; it is a second line behind the OS jail and the
+  trust-split, not the primary boundary.
 * Static rubric checks are gameable in isolation, so they carry low weight and
   are never sufficient for `solved`; the dynamic probes are the authority.
 * The weak-hash KDF probe checks that the candidate's code calls a password
   KDF; it does not verify the work factor.
-* All tasks are single functions. Whole-repository repair (e.g. SEC-bench-style
-  tasks in Docker) is out of scope.
-* Some imported tasks are dropped on Windows (process spawning, native crypto,
-  Unix permissions); the counts above were produced on Windows 11.
+* All tasks are single functions. Whole-repository repair (the §10 Docker track)
+  is the planned successor, not yet built.
+* The OS jail requires Linux user namespaces; on Windows the grader degrades to
+  process-only isolation and `sandbox.isolation_level()` reports it. The results
+  in §7 were produced on Windows (process-only); the hardening and audits in §3–4
+  were added and verified on Linux with bubblewrap active.
 
 ## 9. Reproducibility
 
 ```bash
-pytest -q                                  # 103 tests
-python scripts/hack_audit.py               # 64 attacks, must PASS
+pytest -q                                  # 121 tests (incl. reward-hack regressions)
+python scripts/hack_audit.py --seeds 3     # 300+ attacks, must PASS
+python scripts/mutation_test.py            # probe quality: incomplete fixes must fail
+python scripts/advisory_feasibility.py --since 2024-06-01 --github-sample 150  # §10 track sizing
 python scripts/import_seccodeplt.py        # needs gated access + a token that can read gated repos
 python scripts/import_cweval.py ../datasets/CWEval
-powershell -ExecutionPolicy Bypass -File scripts\final_pipeline.ps1   # baseline evals, training, trained evals
 python scripts/compare_evals.py results/eval_final_base_proc.json results/eval_final_trained_proc.json
 ```
+
+The OS jail needs Linux with user namespaces and `bwrap` (`apt install
+bubblewrap`); without it the grader runs process-only. On Linux, run training
+and models from local disk, not a network mount.
 
 The test suite covers: oracle solves / vulnerable seed fails / empty scores 0
 for every family; determinism and task-id round-trip; timeout handling; guard
@@ -281,3 +326,15 @@ every run (`CSE_FULL_IMPORT_TESTS=1` re-checks all 708).
    or an entropy bonus.
 5. A repository-level track: recent Python advisories whose fix commit adds a
    test that fails before and passes after the fix, one Docker image per task.
+   Feasibility is now measured (`scripts/advisory_feasibility.py`, output
+   `results/advisory_feasibility.md`): of 26,379 PyPI advisories in OSV, 13,600
+   are post-2024-06 and **4,627 carry a GitHub fix commit** (1,980
+   GitHub-reviewed), spanning the same CWEs as the families here (CWE-22 240,
+   918 122, 79 114, 502 100, 94 100, 89 44, …). In an anonymous 39-commit
+   sample, 69% of fix commits already touch a test file; even at a pessimistic
+   15–25% final yield after dependency-install and genuine fail-to-pass
+   filtering, that is ~700–1,150 verifiable tasks — no data scarcity. Next
+   concrete step: a clone → Docker → verify pipeline on a 20–50-task pilot,
+   reusing this grader's reward shape (fail-to-pass = security probes,
+   pass-to-pass = functional probes) with tests driven from outside the
+   container (which also closes the §8 residual).

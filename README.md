@@ -4,15 +4,23 @@
 reinforcement-learning environment with **verifiable security rewards (RLVR)**.
 An LLM is shown a Python function that contains a real vulnerability and must
 return a secure version. The reward is computed by **running hidden functional
-tests and real exploit probes in an isolated subprocess** — never by an LLM
-judge — so a high reward provably means *the bug is fixed and the behaviour is
-preserved*.
+tests and real exploit probes** — never by an LLM judge — so a high reward
+provably means *the bug is fixed and the behaviour is preserved*.
+
+The grader is hardened in depth: candidate code runs inside a **bubblewrap OS
+jail** (no network, read-only filesystem except a throwaway per-candidate
+directory) and in a **fork trust-split** where the candidate never shares a
+process, nonce or output channel with the part of the worker that issues the
+verdict; every value the candidate returns is reduced to a trusted primitive
+before any probe compares it. An adversarial **reward-hacking audit** and a
+**mutation test** (domain-level probe quality) run as part of the suite. See
+`REPORT.md` §4 and §8 for the exact threat model and the one residual the
+function-level model does not remove (which the roadmap's container track does).
 
 It is **model-agnostic** (train any Hugging Face causal LM — 0.5B on a laptop
-GPU or 70B on a server), **framework-light** (the grader has no torch/TRL
+GPU or larger on a server), **framework-light** (the grader has no torch/TRL
 dependency), and ships with a GRPO training loop, a held-out evaluation harness,
-and an adversarial **reward-hacking audit** that demonstrates the grader cannot
-be gamed.
+and the audits above.
 
 ```
          vulnerable function                      fixed function

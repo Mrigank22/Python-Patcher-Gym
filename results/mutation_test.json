@@ -1,0 +1,435 @@
+[
+  {
+    "family": "sqli",
+    "mutant": "quote_doubling",
+    "expect": "partial",
+    "solved": true,
+    "reward": 0.85,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "exact_match": true
+      },
+      "security": {
+        "tautology_injection": true,
+        "stacked_drop_table": true,
+        "union_injection": true
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "sqli",
+    "mutant": "blacklist_keywords",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.717,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "exact_match": true
+      },
+      "security": {
+        "tautology_injection": true,
+        "stacked_drop_table": true,
+        "union_injection": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "sqli",
+    "mutant": "parameterized_qmark",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "exact_match": true
+      },
+      "security": {
+        "tautology_injection": true,
+        "stacked_drop_table": true,
+        "union_injection": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "path_traversal",
+    "mutant": "dotdot_substring_only",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.717,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "reads_inside": true
+      },
+      "security": {
+        "blocks_dotdot": true,
+        "blocks_absolute": false,
+        "blocks_sibling_prefix": true
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "path_traversal",
+    "mutant": "startswith_no_sep",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.817,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "reads_inside": true
+      },
+      "security": {
+        "blocks_dotdot": true,
+        "blocks_absolute": true,
+        "blocks_sibling_prefix": false
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "path_traversal",
+    "mutant": "commonpath_fix",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "reads_inside": true
+      },
+      "security": {
+        "blocks_dotdot": true,
+        "blocks_absolute": true,
+        "blocks_sibling_prefix": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "ssrf",
+    "mutant": "startswith_scheme_host",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.717,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "allows_listed": true,
+        "denies_other": true,
+        "allows_path_query": true,
+        "allows_plain_http": true
+      },
+      "security": {
+        "blocks_subdomain": false,
+        "blocks_query_smuggle": true,
+        "blocks_scheme": true
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "ssrf",
+    "mutant": "blacklist_evil",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.717,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "allows_listed": true,
+        "denies_other": true,
+        "allows_path_query": true,
+        "allows_plain_http": true
+      },
+      "security": {
+        "blocks_subdomain": true,
+        "blocks_query_smuggle": true,
+        "blocks_scheme": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "ssrf",
+    "mutant": "urlsplit_fix",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "allows_listed": true,
+        "denies_other": true,
+        "allows_path_query": true,
+        "allows_plain_http": true
+      },
+      "security": {
+        "blocks_subdomain": true,
+        "blocks_query_smuggle": true,
+        "blocks_scheme": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "xss",
+    "mutant": "escape_lt_only",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.65,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "renders_plain": true
+      },
+      "security": {
+        "escapes_script": false,
+        "escapes_attribute": true
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "xss",
+    "mutant": "strip_script_tag",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.45,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "renders_plain": true
+      },
+      "security": {
+        "escapes_script": false,
+        "escapes_attribute": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "xss",
+    "mutant": "markupsafe_like",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "renders_plain": true
+      },
+      "security": {
+        "escapes_script": true,
+        "escapes_attribute": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "weak_hash",
+    "mutant": "salted_sha256",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.45,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "deterministic": true,
+        "distinct_inputs": true
+      },
+      "security": {
+        "not_fast_hash": false,
+        "uses_password_kdf": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "weak_hash",
+    "mutant": "double_md5",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.65,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "deterministic": true,
+        "distinct_inputs": true
+      },
+      "security": {
+        "not_fast_hash": true,
+        "uses_password_kdf": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "weak_hash",
+    "mutant": "scrypt_fix",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "deterministic": true,
+        "distinct_inputs": true
+      },
+      "security": {
+        "not_fast_hash": true,
+        "uses_password_kdf": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "insecure_random",
+    "mutant": "seeded_random_token",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.45,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "correct_length": true,
+        "correct_charset": true
+      },
+      "security": {
+        "not_predictable": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "insecure_random",
+    "mutant": "hash_of_random",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.45,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "correct_length": true,
+        "correct_charset": true
+      },
+      "security": {
+        "not_predictable": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "insecure_random",
+    "mutant": "systemrandom_fix",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "correct_length": true,
+        "correct_charset": true
+      },
+      "security": {
+        "not_predictable": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "unsafe_deser",
+    "mutant": "full_load_try",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.65,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "parses_mapping": true
+      },
+      "security": {
+        "no_object_construction": true,
+        "no_python_tag": false
+      },
+      "static_ok": false
+    }
+  },
+  {
+    "family": "unsafe_deser",
+    "mutant": "safeloader_fix",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "parses_mapping": true
+      },
+      "security": {
+        "no_object_construction": true,
+        "no_python_tag": true
+      },
+      "static_ok": true
+    }
+  },
+  {
+    "family": "code_injection",
+    "mutant": "eval_empty_builtins",
+    "expect": "insecure",
+    "solved": false,
+    "reward": 0.0,
+    "correct": true,
+    "guard_reason": "banned_name: eval",
+    "details": {}
+  },
+  {
+    "family": "code_injection",
+    "mutant": "ast_literal_eval",
+    "expect": "secure",
+    "solved": true,
+    "reward": 1.0,
+    "correct": true,
+    "guard_reason": "",
+    "details": {
+      "functional": {
+        "value": true,
+        "parens": true,
+        "number": true,
+        "unary_minus": true,
+        "division": true
+      },
+      "security": {
+        "no_code_execution": true
+      },
+      "static_ok": true
+    }
+  }
+]

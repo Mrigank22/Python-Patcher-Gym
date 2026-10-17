@@ -21,15 +21,18 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import select
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from . import guard
+from . import sandbox as sandbox_mod
 from .extract import extract_code
 from .reward import compute_reward
 from .tasks import generate, static_secure
@@ -100,10 +103,18 @@ class Verifier:
             return res
 
         worker = self._run_worker(task_id, source)
-        res.parsed = worker.get("ok", False) and not worker.get("error")
-        res.error = worker.get("error", "")
         func = worker.get("functional", [])
         sec = worker.get("security", [])
+        # Defence in depth: the number of outcomes must match the number of
+        # probes this (trusted) process built for the task. A forged verdict
+        # that sprays "all pass" without knowing the true probe counts trips
+        # this and is discarded as a failure.
+        if len(func) != res.functional_total or len(sec) != res.security_total:
+            res.error = worker.get("error") or "probe_count_mismatch"
+            res.reward = compute_reward(res, self.reward_mode)
+            return res
+        res.parsed = worker.get("ok", False) and not worker.get("error")
+        res.error = worker.get("error", "")
         res.functional_pass = sum(1 for x in func if x)
         res.security_pass = sum(1 for x in sec if x)
         res.static_ok = static_secure(inst.family, source)
@@ -123,9 +134,9 @@ class Verifier:
     # -- internals ---------------------------------------------------------
     def _run_worker(self, task_id: str, source: str) -> dict:
         # Each candidate gets a fresh sandbox dir that is its cwd, its TEMP and
-        # the only place it may write (enforced in the worker). The dir is
-        # deleted afterwards, so nothing a candidate writes can outlive its own
-        # grading or influence the grading of another candidate.
+        # the only place it may write (enforced by the OS jail and the worker's
+        # audit hook). The dir is deleted afterwards, so nothing a candidate
+        # writes can outlive its own grading or influence another candidate's.
         # realpath: on Windows TEMP is often an 8.3 short path (C:\Users\ABCDEF~1\...),
         # and an answer comparing os.path.realpath(full) with the raw base dir
         # would then reject legitimate files here but not on Linux.
@@ -147,26 +158,57 @@ class Verifier:
         request = json.dumps({"task_id": task_id, "candidate_path": candidate_path,
                               "nonce": nonce, "sandbox": sandbox})
 
+        # The verdict comes back on a private pipe, not stdout: candidate code
+        # cannot reach this fd (the worker's untrusted child closes it before
+        # running the candidate), so it cannot forge or pre-empt the verdict.
+        read_fd, write_fd = os.pipe()
+        inner = [self.python, "-m", "cybersec_env._grade_worker"]
+        env["CSE_VERDICT_FD"] = str(write_fd)
+        argv, popen_kwargs = sandbox_mod.wrap_command(
+            inner, sandbox_dir=sandbox, repo_root=_REPO_ROOT, verdict_fd=write_fd)
+
+        proc = None
         try:
-            proc = subprocess.run(
-                [self.python, "-m", "cybersec_env._grade_worker"],
-                input=request,
-                capture_output=True,
-                text=True,
-                # Not the locale codec: on Windows (cp1252) one unusual byte in
-                # the worker's output would lose the whole verdict.
-                encoding="utf-8",
-                errors="replace",
-                timeout=self.timeout_s,
-                cwd=sandbox,
-                env=env,
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE, env=env, cwd=sandbox, **popen_kwargs,
             )
+            os.close(write_fd)
+            write_fd = -1
+            proc.stdin.write(request.encode("utf-8"))
+            proc.stdin.close()
+            verdict = self._read_verdict(read_fd, nonce, proc)
+            return verdict
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "timeout", "functional": [], "security": []}
         finally:
+            if write_fd != -1:
+                os.close(write_fd)
+            os.close(read_fd)
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait()
             shutil.rmtree(sandbox, ignore_errors=True)
 
-        for line in reversed((proc.stdout or "").splitlines()):
+    def _read_verdict(self, read_fd: int, nonce: str, proc) -> dict:
+        """Read the single nonce-tagged verdict line from the private pipe,
+        enforcing the wall-clock timeout."""
+        deadline = time.monotonic() + self.timeout_s
+        buf = bytearray()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                return {"ok": False, "error": "timeout", "functional": [], "security": []}
+            r, _, _ = select.select([read_fd], [], [], remaining)
+            if not r:
+                continue
+            chunk = os.read(read_fd, 65536)
+            if not chunk:
+                break  # writer closed: EOF
+            buf.extend(chunk)
+
+        for line in reversed(bytes(buf).decode("utf-8", "replace").splitlines()):
             line = line.strip()
             if not line.startswith("{"):
                 continue
@@ -177,5 +219,9 @@ class Verifier:
             if isinstance(msg, dict) and msg.get("nonce") == nonce:
                 return msg.get("result", {"ok": False, "error": "bad_output",
                                           "functional": [], "security": []})
-        return {"ok": False, "error": f"no_verdict: {(proc.stderr or '')[-200:]}",
+        try:
+            err = (proc.stderr.read() or b"")[-200:].decode("utf-8", "replace") if proc.stderr else ""
+        except Exception:
+            err = ""
+        return {"ok": False, "error": f"no_verdict: {err}",
                 "functional": [], "security": []}

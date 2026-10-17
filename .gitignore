@@ -29,3 +29,6 @@ Thumbs.db
 .idea/
 .vscode/
 .ipynb_checkpoints/
+
+# OSV archive downloaded by scripts/advisory_feasibility.py
+all.zip

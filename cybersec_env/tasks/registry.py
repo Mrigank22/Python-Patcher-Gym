@@ -93,8 +93,8 @@ STATIC_RULES = {
     "code_injection": (lambda s: not _uses(s, ("eval", "exec")), "must not use eval/exec"),
     "path_traversal": (lambda s: _uses(s, ("os.path.realpath", "realpath", "os.path.abspath", "abspath", "resolve", "commonpath")),
                        "must canonicalize and contain the path"),
-    "unsafe_deser": (lambda s: _uses(s, ("yaml.safe_load", "safe_load")) and not _uses(s, ("yaml.load", "load")) or _uses(s, ("safe_load",)),
-                     "use yaml.safe_load"),
+    "unsafe_deser": (lambda s: _yaml_safe(s),
+                     "use yaml.safe_load (or yaml.load with SafeLoader)"),
     "ssrf": (lambda s: _uses(s, ("urlparse", "urlsplit")), "parse the URL and compare the hostname"),
     "xss": (lambda s: _uses(s, ("html.escape", "escape", "markupsafe")), "escape untrusted text"),
     "weak_hash": (lambda s: _uses(s, ("pbkdf2_hmac", "scrypt", "hashpw", "hash_secret", "hash_secret_raw",
@@ -104,6 +104,36 @@ STATIC_RULES = {
     "insecure_random": (lambda s: _uses(s, ("secrets.choice", "secrets.token_hex", "secrets.token_urlsafe", "os.urandom", "SystemRandom")),
                         "use the secrets module / os.urandom"),
 }
+
+
+def _yaml_safe(source: str) -> bool:
+    """True if YAML is parsed safely: ``safe_load`` / ``safe_load_all``, or a
+    ``load`` restricted to a Safe loader. Any unsafe loader name makes it False.
+
+    The dynamic probes are the authority on security; this only decides whether
+    the (low-weight) static rubric grants the final point, so it must recognise
+    every genuinely safe idiom, not just the reference's ``yaml.safe_load``.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.Name):
+            names.add(node.id)
+    unsafe_loaders = {"Loader", "FullLoader", "UnsafeLoader", "CLoader", "CFullLoader"}
+    safe_loaders = {"SafeLoader", "CSafeLoader", "BaseLoader"}
+    if names & unsafe_loaders:
+        return False
+    if {"safe_load", "safe_load_all"} & names:
+        return True
+    # A bare load(...) with no explicit loader defaults to unsafe in old PyYAML.
+    if {"load", "load_all"} & names:
+        return bool(safe_loaders & names)
+    return bool(safe_loaders & names)
 
 
 def _naive_sql_format(source: str) -> bool:

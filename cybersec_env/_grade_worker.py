@@ -1,27 +1,44 @@
 """Isolated grading worker (one short-lived process per candidate).
 
-Invoked as ``python -m cybersec_env._grade_worker`` with its cwd set to a fresh
-sandbox directory. Reads one JSON request on stdin::
+Invoked as ``python -m cybersec_env._grade_worker``. Reads one JSON request on
+stdin::
 
     {"task_id": "sqli-1-7", "candidate_path": "/sandbox/solution.py",
      "nonce": "<per-call token>", "sandbox": "/sandbox"}
 
-and writes one JSON line on stdout::
+and writes one JSON line carrying its token to the **private verdict fd** named
+by ``$CSE_VERDICT_FD`` (a pipe the parent set up with ``pass_fds``; it falls
+back to stdout only when no fd was passed)::
 
     {"nonce": "<same token>",
-     "result": {"ok": true, "error": "", "functional": [true], "security": [true, false],
+     "result": {"ok": true, "error": "", "functional": [true], "security": [...],
                 "functional_names": [...], "security_names": [...]}}
 
-The parent only accepts a line carrying its token, so anything else on stdout
-is ignored.
+Two layers of isolation, both necessary:
 
-Running in a separate process gives isolation from the trainer: an infinite
-loop is killed by the parent's timeout, a crash cannot take the trainer down,
-and resource limits / a disabled network cap what untrusted code can do. File
-writes are confined to the sandbox directory (which the parent deletes
-afterwards), so a candidate cannot leave anything behind that would affect a
-later grading. The probes themselves come from the trusted package and are
-rebuilt from ``task_id`` here, never supplied by the candidate.
+* **OS jail** (:mod:`cybersec_env.sandbox`): the whole worker runs inside a
+  bubblewrap namespace with no network and a read-only filesystem except the
+  per-candidate sandbox directory.
+* **Trust split (this module):** the worker ``fork``\\s. The *child* runs the
+  candidate and the probes; the *parent* holds the nonce and the verdict fd and
+  writes the verdict. Before the child executes any candidate code it closes
+  the verdict fd and stdin, so candidate code shares no process, no token and
+  no output channel with the part of the worker the parent trusts. This is what
+  defeats the "forge a passing verdict / exit early" class of reward hack: the
+  earlier single-process worker kept the nonce in a frame the candidate could
+  walk to and printed the verdict on a stream the candidate could pre-empt.
+
+Candidate return values are reduced to canonical primitives
+(:func:`_canonical`) before any probe compares them, so a candidate cannot pass
+a probe by returning an object whose ``__eq__`` lies.
+
+The residual the two layers do *not* remove: the child still writes the raw
+probe outcomes to the parent over a pipe, so candidate code that corrupts the
+child's own bookkeeping before that write could still misreport *its own*
+results. Removing that last gap requires never running candidate code in the
+same process as any trusted probe logic — the container / patch-and-run model
+(one image per task, tests driven from outside) that the project's codebase
+track uses. It is documented in REPORT.md rather than hidden.
 """
 
 from __future__ import annotations
@@ -48,6 +65,89 @@ _DENY_EVENTS = {"os.system", "os.startfile", "os.fork", "os.forkpty", "os.kill",
 _DENY_PREFIXES = ("subprocess.", "os.exec", "os.spawn", "os.posix_spawn",
                   "ctypes.", "_winapi.", "winreg.")
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+
+# ---------------------------------------------------------------------------
+# Canonicalisation of candidate return values
+# ---------------------------------------------------------------------------
+# A probe checks the candidate's output with ``==`` (``cand(x) == expected``).
+# If the candidate returns an object whose ``__eq__`` always answers True it
+# passes every probe at once — the single most general reward hack, and one a
+# training run can stumble onto. We defuse it by rebuilding every returned value
+# out of trusted primitive types before any comparison, using the *base* type's
+# own methods so an overridden dunder on a subclass cannot interfere. A value
+# that is not reducible to a primitive is replaced by a unique opaque marker,
+# which compares equal to nothing a probe expects.
+_PRIMITIVE = (bool, int, float, complex, str, bytes, bytearray, type(None))
+
+
+class _Opaque:
+    """Stand-in for a non-primitive return; equal only to itself."""
+
+    __slots__ = ("kind",)
+
+    def __init__(self, kind: str):
+        self.kind = kind
+
+    def __repr__(self):
+        return f"<non-primitive:{self.kind}>"
+
+
+def _canonical(value, _depth: int = 0):
+    if _depth > 50:
+        return _Opaque("too-deep")
+    t = type(value)
+    # Exact built-in primitives are already trustworthy.
+    if t in _PRIMITIVE:
+        return value
+    # Subclasses of built-ins: rebuild via the base type, bypassing overrides.
+    if isinstance(value, bool):
+        return bool(int.__index__(value))
+    if isinstance(value, int):
+        try:
+            return int.__index__(value)
+        except Exception:
+            return _Opaque("int")
+    if isinstance(value, float):
+        try:
+            return float(value.real) if type(value.real) is float else _Opaque("float")
+        except Exception:
+            return _Opaque("float")
+    if isinstance(value, (str, bytes, bytearray)):
+        base = type(value).__mro__[-2] if len(type(value).__mro__) > 1 else t
+        base = next((b for b in (str, bytes, bytearray) if isinstance(value, b)), None)
+        try:
+            return base(base.__str__(value)) if base is str else base(value)
+        except Exception:
+            return _Opaque(base.__name__ if base else "text")
+    # Containers: canonicalise members, iterating via the base type's methods.
+    if isinstance(value, (list, tuple)):
+        items = list.__iter__(value) if isinstance(value, list) else tuple.__iter__(value)
+        out = [_canonical(x, _depth + 1) for x in items]
+        return out if isinstance(value, list) else tuple(out)
+    if isinstance(value, (set, frozenset)):
+        try:
+            return {_canonical(x, _depth + 1) for x in set.__iter__(set(value))}
+        except Exception:
+            return _Opaque("set")
+    if isinstance(value, dict):
+        out = {}
+        for k, v in dict.items(value):
+            out[_canonical(k, _depth + 1)] = _canonical(v, _depth + 1)
+        return out
+    # Anything else (custom classes, generators, callables, ...) is not a value
+    # a probe here legitimately compares against, so make it match nothing.
+    return _Opaque(getattr(t, "__name__", "object"))
+
+
+def _canonicalizing(fn):
+    """Wrap ``fn`` so its return value is canonicalised; keep the real fn for
+    the few probes that introspect the candidate's code object."""
+
+    def wrapper(*args, **kwargs):
+        return _canonical(fn(*args, **kwargs))
+
+    wrapper._cse_real = fn  # noqa: SLF001 - read by families._candidate_names
+    return wrapper
 
 
 def _confine_writes(sandbox: str) -> None:
@@ -87,9 +187,9 @@ def _confine_writes(sandbox: str) -> None:
 
 
 def _harden(sandbox: str) -> None:
-    # The network is disabled by the audit hook below (connect/bind/DNS are
-    # denied). Replacing ``socket.socket`` instead would break every later
-    # import that subclasses it, such as ``ssl``.
+    # The network is disabled by the OS jail (empty net namespace) and, as a
+    # second line, by the audit hook below. Replacing ``socket.socket`` instead
+    # would break every later import that subclasses it, such as ``ssl``.
 
     # POSIX resource limits (no-op on Windows).
     try:
@@ -142,8 +242,12 @@ def _run_pytest(inst, source: str, sandbox: str):
     if meta.get("context"):
         exec(compile(meta["context"], "<task-context>", "exec"), module.__dict__)  # noqa: S102
     exec(compile(source, "<candidate>", "exec"), module.__dict__)  # noqa: S102 - sandboxed
-    if not callable(module.__dict__.get(inst.entrypoint)):
+    entry = module.__dict__.get(inst.entrypoint)
+    if not callable(entry):
         raise ValueError(f"source does not define a callable '{inst.entrypoint}'")
+    # The tests compare the candidate's output with ``==``; canonicalise it so a
+    # lying ``__eq__`` cannot satisfy them (see _canonical).
+    module.__dict__[inst.entrypoint] = _canonicalizing(entry)
     sys.modules[meta["module"]] = module
 
     test_path = os.path.join(sandbox, "test_imported_task.py")
@@ -222,9 +326,11 @@ def _run(task_id: str, candidate_path: str, sandbox: str) -> dict:
         result["security"] = [False] * len(inst.security_probes)
         return result
 
+    cand = _canonicalizing(fn)
+
     def _safe(probe) -> bool:
         try:
-            return bool(probe.fn(fn))
+            return bool(probe.fn(cand))
         except BaseException:
             return False
 
@@ -234,21 +340,136 @@ def _run(task_id: str, candidate_path: str, sandbox: str) -> dict:
     return result
 
 
+def _grade_in_child(task_id: str, candidate_path: str, sandbox: str,
+                    verdict_fd: int) -> dict:
+    """Fork; run the candidate + probes in the child; return the child's result
+    dict in the parent.
+
+    The child never holds the grader's verdict fd or outer nonce. Two further
+    defences stop a candidate from forging the child's *own* report:
+
+    * The candidate runs in a worker **thread**, while the child's inner nonce
+      (``n2``) lives only in the main thread's frame. A frame walk
+      (``f_back``) from candidate code stays within its own thread's stack and
+      never reaches it; the imports that could reach another thread's frames
+      (``sys``, ``threading``, ``gc``, ...) are blocked by the guard.
+    * The child stamps its pipe message with ``n2``; the parent accepts only a
+      message carrying it. A candidate that writes the pipe directly (e.g.
+      spraying every fd) and exits cannot produce ``n2``, so its forged message
+      is rejected and the grade falls back to failure.
+    """
+    import secrets
+    import threading
+
+    n2 = secrets.token_hex(16)
+    r_fd, w_fd = os.pipe()
+    pid = os.fork()
+    if pid == 0:  # ---------------------------------------- untrusted child
+        exit_code = 0
+        try:
+            os.close(r_fd)
+            # Sever every channel the parent trusts before any candidate runs:
+            # the verdict fd and stdin (which carried the outer nonce).
+            for fd in (verdict_fd, 0):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            _harden(sandbox)
+
+            box = {}
+
+            def _work():
+                try:
+                    box["out"] = _run(task_id, candidate_path, sandbox)
+                except BaseException as exc:  # pragma: no cover
+                    box["out"] = {"ok": False,
+                                  "error": f"worker_error: {type(exc).__name__}: {exc}",
+                                  "functional": [], "security": []}
+
+            # Candidate code runs here, one thread removed from the frame that
+            # holds n2. os._exit from the candidate still kills the whole
+            # process -> the parent sees EOF without n2 -> failure (not forge).
+            t = threading.Thread(target=_work, daemon=True)
+            t.start()
+            t.join()
+            out = box.get("out", {"ok": False, "error": "no_thread_result",
+                                  "functional": [], "security": []})
+        except BaseException as exc:  # pragma: no cover - last-resort guard
+            out = {"ok": False, "error": f"worker_error: {type(exc).__name__}: {exc}",
+                   "functional": [], "security": []}
+        try:
+            os.write(w_fd, json.dumps({"n2": n2, "out": out}).encode("utf-8"))
+        except BaseException:
+            exit_code = 1
+        finally:
+            os._exit(exit_code)
+    # ------------------------------------------------------- trusted parent
+    os.close(w_fd)
+    chunks = []
+    try:
+        while True:
+            b = os.read(r_fd, 65536)
+            if not b:
+                break
+            chunks.append(b)
+    finally:
+        os.close(r_fd)
+        os.waitpid(pid, 0)
+    try:
+        msg = json.loads((b"".join(chunks)).decode("utf-8") or "{}")
+        if not isinstance(msg, dict) or msg.get("n2") != n2:
+            raise ValueError("missing or wrong inner nonce")
+        out = msg["out"]
+        if not isinstance(out, dict):
+            raise ValueError("non-dict verdict")
+    except Exception:
+        out = {"ok": False, "error": "no_child_verdict", "functional": [], "security": []}
+    return out
+
+
+def _run_no_fork(task_id: str, candidate_path: str, sandbox: str) -> dict:
+    """Fallback for platforms without ``os.fork`` (e.g. Windows): run inline.
+    The OS jail and audit hook still apply; only the trust split is absent."""
+    try:
+        _harden(sandbox)
+        return _run(task_id, candidate_path, sandbox)
+    except BaseException as exc:  # pragma: no cover
+        return {"ok": False, "error": f"worker_error: {type(exc).__name__}: {exc}",
+                "functional": [], "security": []}
+
+
 def main() -> None:
-    # Read the request (and its token) before any candidate code runs, and
-    # keep it in locals only.
+    # Read the request (and its token) before any candidate code runs, and keep
+    # it only in this trusted process.
     request = json.loads(sys.stdin.readline() or "{}")
     nonce = request.get("nonce", "")
     sandbox = request.get("sandbox") or os.getcwd()
-    out_stream = sys.stdout
+
+    # The verdict travels on a private pipe the parent passed via pass_fds, so
+    # candidate code writing to stdout can never reach the parent. Fall back to
+    # stdout only when launched without one (e.g. a direct manual run).
     try:
-        _harden(sandbox)
-        out = _run(request["task_id"], request["candidate_path"], sandbox)
+        verdict_fd = int(os.environ.get("CSE_VERDICT_FD", ""))
+    except ValueError:
+        verdict_fd = 1
+
+    try:
+        if hasattr(os, "fork") and verdict_fd != 1:
+            out = _grade_in_child(request["task_id"], request["candidate_path"],
+                                  sandbox, verdict_fd)
+        else:
+            out = _run_no_fork(request["task_id"], request["candidate_path"], sandbox)
     except BaseException as exc:  # pragma: no cover - last-resort guard
         out = {"ok": False, "error": f"worker_error: {type(exc).__name__}: {exc}",
                "functional": [], "security": []}
-    out_stream.write("\n" + json.dumps({"nonce": nonce, "result": out}) + "\n")
-    out_stream.flush()
+
+    payload = ("\n" + json.dumps({"nonce": nonce, "result": out}) + "\n").encode("utf-8")
+    os.write(verdict_fd, payload)
+    try:
+        os.fsync(verdict_fd)
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":
