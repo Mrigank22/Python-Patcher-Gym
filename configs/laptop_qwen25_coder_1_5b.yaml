@@ -1,0 +1,58 @@
+# Code-specialised 1.5B profile: Qwen2.5-Coder-1.5B-Instruct + LoRA on an 8 GB
+# laptop GPU (RTX 4060). 1 epoch over the 600-task train split (300 steps x 2 prompts).
+#
+#   python scripts/train_grpo.py --config configs/laptop_qwen25_coder_1_5b.yaml --no-eval
+#   python scripts/evaluate.py --model runs/coder15 --k 4 --test-per-family 25 --tag coder15_trained
+#
+# Hyperparameters come from the 0.5B runs: lr 1e-5 learned (train reward
+# 0.40 -> 0.59), lr 2e-6 barely moved the policy (KL ~1e-3). A small KL anchor
+# guards against drift; micro-batch 2 (x8 accumulation) keeps the backward
+# pass within 8 GB -- micro-batch 4 ran out of memory on long batches.
+
+model: Qwen/Qwen2.5-Coder-1.5B-Instruct
+dtype: bfloat16
+load_in_4bit: false
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+data:
+  n_train_per_family: 75
+  n_test_per_family: 25
+  difficulties: [1]
+  families: null
+
+reward:
+  mode: shaped
+  timeout_s: 8
+  max_workers: 8
+
+grpo:
+  output_dir: runs/coder15
+  num_generations: 8
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  max_completion_length: 384
+  learning_rate: 1.0e-5
+  warmup_steps: 10
+  max_grad_norm: 1.0
+  max_steps: 300
+  logging_steps: 2
+  save_steps: 50
+  temperature: 1.0
+  beta: 0.02
+  scale_rewards: group
+  bf16: true
+  gradient_checkpointing: true
+  use_vllm: false
+  report_to: none
+
+eval:
+  before_after: false
+  k: 4
+  max_new_tokens: 384
+  temperature: 0.7

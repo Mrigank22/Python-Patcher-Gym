@@ -1,0 +1,27 @@
+CyberSec Env
+Copyright 2026 CyberSec Env contributors
+
+This product includes software developed as an OpenEnv environment
+(https://github.com/meta-pytorch/OpenEnv, BSD-3-Clause) and trained with
+Hugging Face TRL (https://github.com/huggingface/trl, Apache-2.0).
+
+The procedural task families in cybersec_env/tasks/families.py are original.
+
+cybersec_env/data/imported/cweval.jsonl contains tasks derived from CWEval —
+"Outcome-driven Evaluation on Functionality and Security of LLM Code
+Generation" (Peng et al., 2025), Apache-2.0, https://github.com/Co1lin/CWEval
+(commit e9a2a12). Each record reuses a CWEval Python task's specification,
+reference solution, insecure variant and pytest module, converted into a
+repair task by scripts/import_cweval.py. Changes: the insecure variant is
+placed under the task's docstring as the prompt, and timeout decorators are
+removed from the tests (the grader enforces its own time limit).
+
+cybersec_env/data/imported/seccodeplt.jsonl contains tasks derived from
+SecCodePLT / SeCodePLT — "A Unified Benchmark for Evaluating the Security
+Risks and Capabilities of Code GenAI" (Yang et al., 2024), MIT,
+https://huggingface.co/datasets/Virtue-AI-HUB/SecCodePLT (gated). Each record
+reuses a task's description, setup code, vulnerable and patched function and
+test table, converted into a repair task with a generated pytest module by
+scripts/import_seccodeplt.py.
+
+CWE identifiers are defined by the MITRE CWE project (https://cwe.mitre.org/).

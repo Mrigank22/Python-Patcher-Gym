@@ -1,0 +1,647 @@
+{
+  "passed": true,
+  "any_solved": false,
+  "oracle_ok": true,
+  "rows": [
+    {
+      "family": "sqli",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.65,
+      "error": ""
+    },
+    {
+      "family": "sqli",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "sqli",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "sqli",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "sqli",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "sqli",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "sqli",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "sqli",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "code_injection",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "code_injection",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "path_traversal",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "unsafe_deser",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "ssrf",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "ssrf",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "ssrf",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "xss",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "xss",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "xss",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "xss",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "xss",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "xss",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "xss",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "xss",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.225,
+      "error": ""
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "weak_hash",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "keep_vulnerable",
+      "class": "do-nothing",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.45,
+      "error": ""
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "empty_stub",
+      "class": "break-functionality",
+      "guard_blocked": false,
+      "guard_reason": "",
+      "solved": false,
+      "reward": 0.0,
+      "error": ""
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "import_grader",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: cybersec_env",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: cybersec_env"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "monkeypatch_exists",
+      "class": "monkeypatch",
+      "guard_blocked": true,
+      "guard_reason": "attribute_assignment: .exists",
+      "solved": false,
+      "reward": 0.0,
+      "error": "attribute_assignment: .exists"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "introspection_chain",
+      "class": "introspection",
+      "guard_blocked": true,
+      "guard_reason": "banned_attribute: .__bases__",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_attribute: .__bases__"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "sys_exit",
+      "class": "process-control",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: sys",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: sys"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "dynamic_exec",
+      "class": "dynamic-exec",
+      "guard_blocked": true,
+      "guard_reason": "banned_name: eval",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_name: eval"
+    },
+    {
+      "family": "insecure_random",
+      "exploit": "import_network",
+      "class": "grader-escape",
+      "guard_blocked": true,
+      "guard_reason": "banned_import: socket",
+      "solved": false,
+      "reward": 0.0,
+      "error": "banned_import: socket"
+    }
+  ]
+}

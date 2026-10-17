@@ -1,0 +1,63 @@
+# Final run: Qwen2.5-Coder-1.5B-Instruct + LoRA on the mixed task set, on an
+# 8 GB laptop GPU (RTX 4060).
+#
+#   Train: 8 procedural families x difficulties 1-2 x 40 seeds (640 tasks;
+#          code_injection difficulty 1 carries a hint as a curriculum rung)
+#          + SecCodePLT train split (582 validated tasks, 15 CWEs).
+#   Test (never trained on): procedural held-out seeds at difficulty 2,
+#          SecCodePLT test split (110), CWEval (16, independent tests).
+#
+#   python scripts/train_grpo.py --config configs/final_coder15_mixed.yaml --no-eval
+#
+# Grader changes since the first run: security credit scales with how much of
+# the code works; tightened weak-hash and path-traversal probes; richer
+# functional probes for code injection and SSRF.
+
+model: Qwen/Qwen2.5-Coder-1.5B-Instruct
+dtype: bfloat16
+load_in_4bit: false
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+data:
+  n_train_per_family: 40
+  n_test_per_family: 25
+  difficulties: [1, 2]
+  families: null
+  sources: [seccodeplt]
+
+reward:
+  mode: shaped
+  timeout_s: 8
+  max_workers: 8
+
+grpo:
+  output_dir: runs/final_coder15
+  num_generations: 8
+  per_device_train_batch_size: 1   # longer answers (p99 ~450 tokens): keep the backward pass within 8 GB
+  gradient_accumulation_steps: 16  # still 16 answers (2 tasks x 8) per update
+  max_completion_length: 448
+  learning_rate: 1.0e-5
+  warmup_steps: 10
+  max_grad_norm: 1.0
+  max_steps: 400
+  logging_steps: 2
+  save_steps: 50
+  temperature: 1.0
+  beta: 0.02
+  scale_rewards: group
+  bf16: true
+  gradient_checkpointing: true
+  use_vllm: false
+  report_to: none
+
+eval:
+  before_after: false
+  k: 4
+  max_new_tokens: 512
+  temperature: 0.7

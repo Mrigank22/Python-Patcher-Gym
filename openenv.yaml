@@ -1,0 +1,27 @@
+spec_version: 1
+name: cybersec-secure-code-repair
+version: 0.1.0
+type: space
+runtime: fastapi
+app: cybersec_env.server.app:app
+port: 8000
+description: >
+  Single-turn RL environment that trains LLMs to repair insecure Python.
+  The agent receives a vulnerable function and must return a secure version;
+  the reward is computed by running hidden functional tests and real exploit
+  probes in an isolated subprocess (verifiable, no LLM judge).
+validation:
+  reward:
+    range: [0.0, 1.0]
+    oracle_tolerance: 0.0
+    floor_margin: 0.1
+  resources:
+    cpu: 2.0
+    memory_mb: 2048
+    disk_mb: 1024
+    episode_timeout_s: 30.0
+  capabilities:
+    verifier:
+      kind: reward_channel
+  types:
+    tags: [security, code, rlvr, secure-coding, rl-environment]

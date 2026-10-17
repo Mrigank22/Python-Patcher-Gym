@@ -1,0 +1,52 @@
+# Laptop profile: Qwen2.5-0.5B-Instruct with LoRA, tuned for an 8 GB GPU
+# (e.g. RTX 4060 Laptop). Trains without vLLM using HF generation.
+#
+#   python scripts/train_grpo.py --config configs/laptop_qwen05b.yaml
+
+model: Qwen/Qwen2.5-0.5B-Instruct
+dtype: bfloat16
+load_in_4bit: false            # set true (needs bitsandbytes) to save more VRAM
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+data:
+  n_train_per_family: 48       # 8 families -> 384 train tasks
+  n_test_per_family: 16        # 128 held-out tasks (disjoint seeds)
+  difficulties: [1]
+  families: null               # null = all families
+
+reward:
+  mode: shaped                 # "shaped" (dense, good for small models) | "binary"
+  timeout_s: 8
+  max_workers: 8
+
+grpo:
+  output_dir: runs/qwen05b
+  num_generations: 8
+  per_device_train_batch_size: 8   # 1 unique prompt x 8 samples per step
+  gradient_accumulation_steps: 2
+  max_completion_length: 384
+  learning_rate: 2.0e-6         # low LR: small models collapse easily under GRPO
+  warmup_steps: 20
+  max_grad_norm: 0.5
+  max_steps: 200
+  logging_steps: 2
+  save_steps: 100
+  temperature: 1.0
+  beta: 0.04                    # KL anchor to the reference model prevents degeneration
+  scale_rewards: group
+  bf16: true
+  gradient_checkpointing: true
+  use_vllm: false
+  report_to: none
+
+eval:
+  before_after: true
+  k: 4                         # pass@1 and pass@4
+  max_new_tokens: 384
+  temperature: 0.7

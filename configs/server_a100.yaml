@@ -1,0 +1,51 @@
+# Server profile: a mid-size model with vLLM-accelerated generation on a single
+# A100/H100 (40-80 GB). Full fine-tuning (no LoRA); scale the dataset up and use
+# the stricter binary reward that frontier models train on cleanly.
+#
+#   python scripts/train_grpo.py --config configs/server_a100.yaml
+
+model: Qwen/Qwen2.5-7B-Instruct
+dtype: bfloat16
+load_in_4bit: false
+
+lora:
+  enabled: false               # full FT on a big GPU; set true for QLoRA
+
+data:
+  n_train_per_family: 256      # 8 families -> ~2k train tasks
+  n_test_per_family: 64
+  difficulties: [1]
+  families: null
+
+reward:
+  mode: binary                 # strict: solved iff all functional + all security pass
+  timeout_s: 8
+  max_workers: 32
+
+grpo:
+  output_dir: runs/qwen7b
+  num_generations: 16
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 4
+  max_completion_length: 768
+  learning_rate: 1.0e-6
+  warmup_steps: 50
+  max_grad_norm: 1.0
+  max_steps: 1000
+  logging_steps: 5
+  save_steps: 200
+  temperature: 1.0
+  beta: 0.02
+  scale_rewards: group
+  bf16: true
+  gradient_checkpointing: true
+  use_vllm: true
+  vllm_mode: colocate
+  vllm_gpu_memory_utilization: 0.35
+  report_to: none
+
+eval:
+  before_after: true
+  k: 8
+  max_new_tokens: 768
+  temperature: 0.7
