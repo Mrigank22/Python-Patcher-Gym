@@ -32,3 +32,6 @@ Thumbs.db
 
 # OSV archive downloaded by scripts/advisory_feasibility.py
 all.zip
+
+# Codebase-track build artifacts (clones, Docker contexts, specs) - large & reproducible
+/data/
