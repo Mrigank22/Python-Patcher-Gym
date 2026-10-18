@@ -1,0 +1,101 @@
+{
+  "id": "GHSA-w235-7p84-xx57",
+  "aliases": [
+    "CVE-2024-58384"
+  ],
+  "cwes": [
+    "CWE-93"
+  ],
+  "severity": "MODERATE",
+  "package": "tornado",
+  "repo": {
+    "owner": "tornadoweb",
+    "name": "tornado",
+    "url": "https://github.com/tornadoweb/tornado"
+  },
+  "base_commit": "0efa9a42b4c94ee98549d86992c68227f83efd4e",
+  "fix_commit": "7786f09f84c9f3f2012c4cf3878417cb9f053669",
+  "python_requires": ">= 3.8",
+  "changed_source_files": [
+    "tornado/curl_httpclient.py",
+    "tornado/http1connection.py"
+  ],
+  "changed_test_files": [
+    "tornado/test/httpclient_test.py"
+  ],
+  "source_patch": "diff --git a/tornado/curl_httpclient.py b/tornado/curl_httpclient.py\nindex 23320e4..397c3a9 100644\n--- a/tornado/curl_httpclient.py\n+++ b/tornado/curl_httpclient.py\n@@ -19,6 +19,7 @@ import collections\n import functools\n import logging\n import pycurl\n+import re\n import threading\n import time\n from io import BytesIO\n@@ -44,6 +45,8 @@ if typing.TYPE_CHECKING:\n \n curl_log = logging.getLogger(\"tornado.curl_httpclient\")\n \n+CR_OR_LF_RE = re.compile(b\"\\r|\\n\")\n+\n \n class CurlAsyncHTTPClient(AsyncHTTPClient):\n     def initialize(  # type: ignore\n@@ -347,14 +350,15 @@ class CurlAsyncHTTPClient(AsyncHTTPClient):\n         if \"Pragma\" not in request.headers:\n             request.headers[\"Pragma\"] = \"\"\n \n-        curl.setopt(\n-            pycurl.HTTPHEADER,\n-            [\n-                b\"%s: %s\"\n-                % (native_str(k).encode(\"ASCII\"), native_str(v).encode(\"ISO8859-1\"))\n-                for k, v in request.headers.get_all()\n-            ],\n-        )\n+        encoded_headers = [\n+            b\"%s: %s\"\n+            % (native_str(k).encode(\"ASCII\"), native_str(v).encode(\"ISO8859-1\"))\n+            for k, v in request.headers.get_all()\n+        ]\n+        for line in encoded_headers:\n+            if CR_OR_LF_RE.search(line):\n+                raise ValueError(\"Illegal characters in header (CR or LF): %r\" % line)\n+        curl.setopt(pycurl.HTTPHEADER, encoded_headers)\n \n         curl.setopt(\n             pycurl.HEADERFUNCTION,\ndiff --git a/tornado/http1connection.py b/tornado/http1connection.py\nindex ca50e8f..3bdffac 100644\n--- a/tornado/http1connection.py\n+++ b/tornado/http1connection.py\n@@ -38,6 +38,8 @@ from tornado.util import GzipDecompressor\n \n from typing import cast, Optional, Type, Awaitable, Callable, Union, Tuple\n \n+CR_OR_LF_RE = re.compile(b\"\\r|\\n\")\n+\n \n class _QuietException(Exception):\n     def __init__(self) -> None:\n@@ -453,8 +455,8 @@ class HTTP1Connection(httputil.HTTPConnection):\n         )\n         lines.extend(line.encode(\"latin1\") for line in header_lines)\n         for line in lines:\n-            if b\"\\n\" in line:\n-                raise ValueError(\"Newline in header: \" + repr(line))\n+            if CR_OR_LF_RE.search(line):\n+                raise ValueError(\"Illegal characters (CR or LF) in header: %r\" % line)\n         future = None\n         if self.stream.closed():\n             future = self._write_future = Future()\n",
+  "test_patch": "diff --git a/tornado/test/httpclient_test.py b/tornado/test/httpclient_test.py\nindex 31a1916..17291f8 100644\n--- a/tornado/test/httpclient_test.py\n+++ b/tornado/test/httpclient_test.py\n@@ -725,6 +725,22 @@ X-XSS-Protection: 1;\n                 if el.logged_stack:\n                     break\n \n+    def test_header_crlf(self):\n+        # Ensure that the client doesn't allow CRLF injection in headers. RFC 9112 section 2.2\n+        # prohibits a bare CR specifically and \"a recipient MAY recognize a single LF as a line\n+        # terminator\" so we check each character separately as well as the (redundant) CRLF pair.\n+        for header, name in [\n+            (\"foo\\rbar:\", \"cr\"),\n+            (\"foo\\nbar:\", \"lf\"),\n+            (\"foo\\r\\nbar:\", \"crlf\"),\n+        ]:\n+            with self.subTest(name=name, position=\"value\"):\n+                with self.assertRaises(ValueError):\n+                    self.fetch(\"/hello\", headers={\"foo\": header})\n+            with self.subTest(name=name, position=\"key\"):\n+                with self.assertRaises(ValueError):\n+                    self.fetch(\"/hello\", headers={header: \"foo\"})\n+\n \n class RequestProxyTest(unittest.TestCase):\n     def test_request_set(self):\n",
+  "summary": "Tornado has a CRLF injection in CurlAsyncHTTPClient headers",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `tornado` has a security vulnerability (CWE-93). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_header_crlf"
+  ],
+  "p2p_tests": [
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_304_with_content_length",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_all_methods",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_basic_auth",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_basic_auth_explicit_mode",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_basic_auth_unicode",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_bind_source_ip",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_body_encoding",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_body_sanity_checks",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_chunked",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_chunked_close",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_configure_defaults",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_credentials_in_url",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_error_after_cancel",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_follow_redirect",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_future_http_error",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_future_http_error_no_raise",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_future_interface",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_gzip",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_header_callback",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_header_encoding",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_header_types",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_hello_world",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_invalid_gzip",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_method_after_redirect",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_multi_line_headers",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_non_ascii_header",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_patch_receives_payload",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_post",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_put_307",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_redirect_put_with_body",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_redirect_put_without_body",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_redirect_without_location",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_response_times",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_reuse_request_from_response",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_streaming_callback",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_types",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_unsupported_auth_mode",
+    "tornado.test.httpclient_test.HTTPClientCommonTestCase::test_zero_timeout",
+    "tornado.test.httpclient_test.HTTPErrorTestCase::test_copy",
+    "tornado.test.httpclient_test.HTTPErrorTestCase::test_error_with_response",
+    "tornado.test.httpclient_test.HTTPErrorTestCase::test_plain_error",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_body",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_body_setter",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_headers",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_headers_setter",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_if_modified_since",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_if_modified_since_naive_deprecated",
+    "tornado.test.httpclient_test.HTTPRequestTestCase::test_null_headers_setter",
+    "tornado.test.httpclient_test.HTTPResponseTestCase::test_str",
+    "tornado.test.httpclient_test.RequestProxyTest::test_bad_attribute",
+    "tornado.test.httpclient_test.RequestProxyTest::test_both_set",
+    "tornado.test.httpclient_test.RequestProxyTest::test_default_set",
+    "tornado.test.httpclient_test.RequestProxyTest::test_defaults_none",
+    "tornado.test.httpclient_test.RequestProxyTest::test_neither_set",
+    "tornado.test.httpclient_test.RequestProxyTest::test_request_set",
+    "tornado.test.httpclient_test.SyncHTTPClientSubprocessTest::test_destructor_log",
+    "tornado.test.httpclient_test.SyncHTTPClientTest::test_sync_client",
+    "tornado.test.httpclient_test.SyncHTTPClientTest::test_sync_client_error"
+  ],
+  "test_files": [
+    "tornado/test/httpclient_test.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 58,
+  "n_after_pass": 59
+}

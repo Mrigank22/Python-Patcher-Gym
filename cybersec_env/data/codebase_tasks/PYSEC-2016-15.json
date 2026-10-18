@@ -1,0 +1,56 @@
+{
+  "id": "PYSEC-2016-15",
+  "aliases": [
+    "CVE-2016-2512",
+    "GHSA-pw27-w7w4-9qc7"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "django",
+  "repo": {
+    "owner": "django",
+    "name": "django",
+    "url": "https://github.com/django/django"
+  },
+  "base_commit": "f43291639bb968001df4719c4e69269bd8a3162b",
+  "fix_commit": "c5544d289233f501917e25970c03ed444abbd4f0",
+  "python_requires": "",
+  "changed_source_files": [
+    "django/utils/http.py"
+  ],
+  "changed_test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "source_patch": "diff --git a/django/utils/http.py b/django/utils/http.py\nindex 2dce7d3..6e782bd 100644\n--- a/django/utils/http.py\n+++ b/django/utils/http.py\n@@ -290,8 +290,12 @@ def is_safe_url(url, host=None):\n         url = url.strip()\n     if not url:\n         return False\n-    # Chrome treats \\ completely as /\n-    url = url.replace('\\\\', '/')\n+    # Chrome treats \\ completely as / in paths but it could be part of some\n+    # basic auth credentials so we need to check both URLs.\n+    return _is_safe_url(url, host) and _is_safe_url(url.replace('\\\\', '/'), host)\n+\n+\n+def _is_safe_url(url, host):\n     # Chrome considers any URL with more than two slashes to be absolute, but\n     # urlparse is not so flexible. Treat any url with three slashes as unsafe.\n     if url.startswith('///'):\n",
+  "test_patch": "diff --git a/tests/utils_tests/test_http.py b/tests/utils_tests/test_http.py\nindex 6234e26..2a9b553 100644\n--- a/tests/utils_tests/test_http.py\n+++ b/tests/utils_tests/test_http.py\n@@ -97,6 +97,11 @@ class TestUtilsHttp(unittest.TestCase):\n                         'javascript:alert(\"XSS\")',\n                         '\\njavascript:alert(x)',\n                         '\\x08//example.com',\n+                        r'http://otherserver\\@example.com',\n+                        r'http:\\\\testserver\\@example.com',\n+                        r'http://testserver\\me:pass@example.com',\n+                        r'http://testserver\\@example.com',\n+                        r'http:\\\\testserver\\confirm\\me@example.com',\n                         '\\n'):\n             self.assertFalse(http.is_safe_url(bad_url, host='testserver'), \"%s should be blocked\" % bad_url)\n         for good_url in ('/view/?param=http://example.com',\n@@ -106,8 +111,15 @@ class TestUtilsHttp(unittest.TestCase):\n                      'https://testserver/',\n                      'HTTPS://testserver/',\n                      '//testserver/',\n+                     'http://testserver/confirm?email=me@example.com',\n                      '/url%20with%20spaces/'):\n             self.assertTrue(http.is_safe_url(good_url, host='testserver'), \"%s should be allowed\" % good_url)\n+        # Valid basic auth credentials are allowed.\n+        self.assertTrue(http.is_safe_url(r'http://user:pass@testserver/', host='user:pass@testserver'))\n+        # A path without host is allowed.\n+        self.assertTrue(http.is_safe_url('/confirm/me@example.com'))\n+        # Basic auth without host is not allowed.\n+        self.assertFalse(http.is_safe_url(r'http://testserver\\@example.com'))\n \n     def test_urlsafe_base64_roundtrip(self):\n         bytestring = b'foo'\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `django` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.utils_tests.test_http.TestUtilsHttp::test_is_safe_url"
+  ],
+  "p2p_tests": [
+    "tests.utils_tests.test_http.ETagProcessingTests::test_parsing",
+    "tests.utils_tests.test_http.ETagProcessingTests::test_quoting",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_cookie_date",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_http_date",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_asctime",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc1123",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc850",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_base36",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_is_same_domain_bad",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_is_same_domain_good",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlencode",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlquote",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlsafe_base64_roundtrip"
+  ],
+  "test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 13,
+  "n_after_pass": 14
+}

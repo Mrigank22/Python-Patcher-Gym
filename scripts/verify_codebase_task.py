@@ -28,6 +28,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 SPECS = ROOT / "data" / "codebase" / "specs"
 VERIFIED = ROOT / "data" / "codebase" / "verified"
+# Verified specs are the dataset itself (tens of KB each), so they are also kept
+# in a git-tracked folder; everything else under data/ is rebuildable scratch.
+TRACKED = ROOT / "cybersec_env" / "data" / "codebase_tasks"
 
 from cybersec_env.codebase.grader import CodebaseGrader  # noqa: E402
 
@@ -49,9 +52,10 @@ def verify_and_save(spec: dict, grader: CodebaseGrader) -> dict:
             "n_before_pass": v.get("n_before_pass"),
             "n_after_pass": v.get("n_after_pass"),
         })
-        VERIFIED.mkdir(parents=True, exist_ok=True)
-        (VERIFIED / f"{_safe(spec['id'])}.json").write_text(
-            json.dumps(spec, indent=2), encoding="utf-8")
+        for d in (VERIFIED, TRACKED):
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{_safe(spec['id'])}.json").write_text(
+                json.dumps(spec, indent=2), encoding="utf-8")
     return v
 
 

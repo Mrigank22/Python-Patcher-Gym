@@ -144,6 +144,17 @@ def main():
         record(cid, {"status": verdict})
         return verdict
 
+    # Specs triaged in an earlier run that was stopped before Docker
+    # verification would otherwise stay at "spec_written" forever (the ledger
+    # marks them processed); verify those first.
+    ledger = load_ledger()
+    stranded = [cid for cid, v in ledger.items() if v.get("status") == "spec_written"]
+    if args.verify and stranded:
+        print(f"== resuming {len(stranded)} specs left unverified by a previous run ==", flush=True)
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            list(pool.map(do_verify, stranded))
+        subprocess.run(["docker", "builder", "prune", "-af"], capture_output=True, timeout=300)
+
     while True:
         ledger = load_ledger()
         batch = order_candidates(cands, ledger)[: args.triage_batch]

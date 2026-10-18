@@ -17,16 +17,22 @@
      families + 708 imported benchmark tasks. This is what was trained before.
   2. **Codebase-level** (new, the sellable differentiator): real PyPI security
      advisories turned into SWE-bench-style Docker tasks, graded fail-to-pass.
-- **This session's work (all committed on branch `harden-grader-and-feasibility`):**
+- **This session's work (all on `main`; owner wants everything on `main`, no
+  feature branches):**
   - The function-level grader was **verified hackable** and then **hardened** so
     both demonstrated hacks score 0; added an adversarial audit, a mutation test
     and 18 regression tests. 121 tests pass.
-  - Built the **codebase-track pipeline** (collect → triage → verify) and a
-    **production container grader**, validated end-to-end on a real task.
-  - Measured feasibility: thousands of candidate advisories exist; the pipeline
-    already produces verified tasks.
+  - Built the **codebase-track pipeline** (collect → triage → verify), a
+    **production container grader**, and a **parallel, resumable harvester**.
+  - **17 verified codebase tasks so far** from real packages (Django, Requests,
+    Tornado, Twisted, Gradio, yt-dlp, Waitress, Vyper, …) across all eras; tracked
+    in git under `cybersec_env/data/codebase_tasks/`.
+  - Built an **AWS Batch GPU training job** (`aws/`) that trains and saves to S3
+    on its own.
 - **Biggest blocker:** no GPU on the current VM (see §7). Training is the only
   step that needs one; everything else is done or runnable here.
+- **Not yet on GitHub:** local `main` is ahead of `origin/main`; pushing needs the
+  owner's GitHub credentials (none in this environment). See §7.
 
 ---
 
@@ -74,6 +80,7 @@ cybersec_env/
   data/
     imported/          SecCodePLT (692) + CWEval (16) jsonl  [tracked]
     advisories/        candidates.jsonl: 8,186 advisory recipes  [tracked, NEW]
+    codebase_tasks/    VERIFIED codebase tasks, one JSON spec each  [tracked, NEW]
   codebase/            codebase-track package  [NEW]
     grader.py          CodebaseGrader: build image, verify, grade_patch, sanitize_patch
 scripts/
@@ -85,11 +92,18 @@ scripts/
   collect_advisories.py   stage 1: OSV -> candidate index  [NEW]
   build_codebase_tasks.py stage 2: clone + split patches -> specs  [NEW]
   verify_codebase_task.py stage 3: Docker fail-to-pass verify (uses CodebaseGrader) [NEW]
-  harvest_codebase.py  resumable batch runner for stages 2-3  [NEW]
+  harvest_codebase.py  parallel, resumable batch runner for stages 2-3  [NEW]
   advisory_feasibility.py  feasibility counting over OSV  [NEW]
+aws/                   AWS Batch GPU training job  [NEW]
+  Dockerfile.train     CUDA+PyTorch+trl+grader+repo image
+  entrypoint.sh        resume from S3 checkpoint -> train -> upload results to S3
+  job-definition.json  1 GPU / 4 vCPU / 15 GB, 6 h timeout, 2 retries
+  submit.sh            ECR build+push, register, submit (--wait to poll + pull)
+  README.md            one-time setup + the GPU-quota caveat
 tests/                 121 tests incl. test_reward_hacks.py [NEW]
 configs/               YAML training configs (final_coder15_mixed.yaml is the proven one)
-data/                  [git-ignored] codebase clones, specs, verified tasks, ledger
+data/                  [git-ignored] scratch: clones, all triaged specs, ledger, a
+                       copy of verified tasks (the tracked copy is codebase_tasks/)
 setup.sh               one-command environment bootstrap  [NEW]
 REPORT.md              full technical report (updated this session)
 HANDOFF.md             this file
@@ -168,23 +182,40 @@ This is the production grader labs want and the one with no residual.
   337, CWE-79 302, CWE-94 151, CWE-918 151, CWE-502 135, CWE-89 69, …). Index in
   `cybersec_env/data/advisories/candidates.jsonl` (tracked). Re-run with
   `--refresh` to stay current to the latest advisories.
-- **Measured yields (real, from git/Docker — not estimates):**
-  - triage (fix touched both a test and source file, extractable patch):
-    **35%** of a 60-advisory era-balanced sample.
-  - end-to-end Docker fail-to-pass on the first 21 triaged specs: a handful
-    verify; the rest drop mostly on **environment setup** (`before={0,0,0}` =
-    the historical package didn't `pip install`, so no tests ran) or collection
-    errors. This is the known hard part and the main yield lever (see §6).
-- Honest projection: after environment-robustness work, expect ~10–25% of the
-  8,186 to become fully verified = **~800–2,000 tasks** spanning all eras/CWEs.
-  No data scarcity; the bottleneck is per-package environment setup, not supply.
+- **Measured yields (real, from git/Docker; ledger of the first ~308 advisories
+  processed, 2026-10-18):**
+  - triage → usable spec (fix touched both a test and a source file): **~39%**
+    (157 had no test in the fix, 23 no source change, 7 clone failures).
+  - Docker verification of those specs → verified fail-to-pass: **~12%** (most
+    drops are `not_fail_to_pass`, overwhelmingly **environment setup**:
+    `before={0,0,0}` = the historical package didn't `pip install`, so no tests
+    ran; plus collection errors).
+  - **End to end: ~5% of advisories become verified tasks** right now.
+- **Verified tasks so far: 17** (tracked in `cybersec_env/data/codebase_tasks/`),
+  e.g. Django (legacy), Requests CWE-522 (legacy), Waitress (legacy, 13
+  fail-to-pass tests), Twisted CWE-200/346, Vyper CWE-754, Tornado CWE-444 and
+  CWE-93, Gradio CWE-22, yt-dlp CWE-434 (111 fail-to-pass tests), Roundup
+  CWE-79 ×3, Canonical `ops` CWE-532, fickling, treq. Era mix: 3 legacy, 3
+  recent, 10–11 post-cutoff. Some tasks have only 1 fail-to-pass test — fine
+  for training, but a buyer-facing set should prefer ≥2 and be reviewed.
+- Honest projection: at today's ~5% end-to-end rate the full 8,186 index gives
+  **~400 verified tasks**; after the environment-robustness work (§6.2) the
+  expectation is ~10–25% = ~800–2,000. No data scarcity; the bottleneck is
+  per-package environment setup, not supply.
+- **Harvest speed:** this 4-vCPU VM triages ~1.3 advisories/s and verifies one
+  spec every ~40–80 s on 6 workers; the whole index is roughly **half a day to a
+  day** of continuous compute (verify is the long pole). A 64-core CPU box would
+  be ~8–12× faster (not 16×: one Docker daemon, disk I/O and network are shared)
+  — but more cores raise throughput, **not** the verified yield.
 
 ### 4.3 Why the dataset is small in git
 Tasks are **recipes**, not built images: each verified task is a JSON spec
 (repo URL, two commit SHAs, gold source patch, test patch, f2p/p2p test ids,
-Python version) — tens of KB. Docker images are rebuilt on demand and never
-committed. 1,000 tasks ≈ 20–40 MB of text, pushes/pulls in seconds (this is how
-SWE-bench ships). Clones/images/specs live under the git-ignored `data/`.
+Python version) — ~20 KB on average (17 tasks = 316 KB). Docker images are
+rebuilt on demand and never committed. 1,000 tasks ≈ 20–40 MB of text,
+pushes/pulls in seconds (this is how SWE-bench ships). Verified specs are
+written to the tracked `cybersec_env/data/codebase_tasks/`; clones, unverified
+specs and the ledger live under the git-ignored `data/`.
 *Caveat:* reproducibility depends on the upstream GitHub repos staying alive at
 those SHAs; a future "freeze" step can tar each base tree into a release
 artifact (GB-scale, shipped outside git) for buyers who need permanence.
@@ -209,10 +240,14 @@ held-out tasks:
 
 ## 6. What to do next (priority order)
 
+0. **Push `main` to GitHub** (owner action; needs their credentials).
 1. **Grow the codebase dataset** (no GPU): run the harvester in the background.
-   `python scripts/harvest_codebase.py --triage-batch 300 --verify --loop`.
-   Watch the verified count in `data/codebase/verified/` and the ledger.
-2. **Raise the verification yield** — the highest-leverage engineering:
+   `python scripts/harvest_codebase.py --triage-batch 150 --verify --loop --workers 6 --min-free-gb 10`.
+   Watch `cybersec_env/data/codebase_tasks/` and `data/codebase/ledger.json`.
+   Commit the new task files periodically. A sensible stopping point for a
+   first sellable set is ~300–500 verified tasks, not the whole index.
+2. **Raise the verification yield**: the highest-leverage engineering, and
+   worth doing *before* a long or big-machine harvest:
    - per-task Python version from `python_requires` (done) *and* a fallback
      matrix (try 3.8–3.12) when the first build/install fails;
    - install system build deps for common native packages; honour
@@ -223,7 +258,9 @@ held-out tasks:
    1–2 strong models on all three test sets per CWE to get the pass-rate table
    buyers ask for. Open-model stand-ins can run on a rented GPU.
 4. **Train** (needs a GPU, §7): re-run `final_coder15_mixed.yaml` on the
-   hardened grader (3 seeds), add an SFT warm-start for the 0% categories, and —
+   hardened grader (3 seeds) — on the owner's RTX 4060, a rented GPU, or via the
+   AWS Batch job in `aws/` (check the GPU quota first) — add an SFT warm-start
+   for the 0% categories, and —
    once there are enough verified codebase tasks — a patch-generation run on
    them (expensive: Docker per rollout; use a bigger rented GPU).
 5. **Package & sell:** Docker image, grader write-up, the reward-hacking +
@@ -242,6 +279,20 @@ held-out tasks:
   (e.g. `Standard_NC4as_T4_v3` = 1× T4 16 GB) and run there; or use the owner's
   **RTX 4060 laptop** (already proven), Colab/Kaggle (free, time-limited), or a
   cheap rental (RunPod/Vast, ~$0.2–0.5/hr). Student free tiers block GPU SKUs.
+- **AWS Batch (`aws/`) does not bypass the GPU quota.** A Batch GPU job launches
+  a G/P EC2 instance and needs On-Demand GPU vCPU quota (code `L-DB2E81BA`,
+  "Running On-Demand G and VT instances"). At 0 the job sits in `RUNNABLE`
+  forever. Check it first. The job is fire-and-forget (results land in S3), so
+  nobody needs to stay connected. No AWS CLI or credentials exist on this VM;
+  the owner configures them with `! aws configure`; never paste keys into chat.
+- **Background jobs die when the Claude Code session ends.** This has happened
+  several times. All long jobs are written to resume: the harvester's ledger
+  is written atomically, re-running the same command continues, and on startup
+  it verifies specs a stopped run left at `spec_written`.
+- **This VM's real limits are 4 vCPUs and disk, not RAM.** The 32 GB RAM is
+  mostly page cache. Docker build cache filled the disk to 80% once (34 GB);
+  the harvester now prunes it and pauses below `--min-free-gb`. If disk fills
+  anyway: `docker builder prune -af && docker image prune -af`.
 - **Moving to another box is NOT a migration:** `git clone` + `bash setup.sh`.
   Chat history does not need to move — this file + REPORT.md + memory carry the
   state. Put models and the venv on **local disk**, not a network mount.
@@ -253,6 +304,9 @@ held-out tasks:
   `python -c "from cybersec_env import sandbox; print(sandbox.isolation_level())"`.
 - **Git:** repo lives on a mount that trips git's "dubious ownership"; use
   `git -c safe.directory=$PWD ...`. Remote: github.com/Mrigank22/Python-Patcher-Gym.
+  **Commit directly to `main`** (owner's explicit preference; an earlier feature
+  branch was fast-forwarded into `main` and deleted). Local `main` is ahead of
+  `origin/main` until the owner pushes: there are no GitHub credentials here.
 - **Docker** is available and used for codebase grading; builds are online
   (pip needs network), test runs are `--network none`.
 - **Never edit `cybersec_env/` files while a training/eval/verify run is in
@@ -276,12 +330,20 @@ $PY -m pytest -q                               # 121 tests
 $PY scripts/hack_audit.py --seeds 3            # reward-hacking audit, must PASS
 $PY scripts/mutation_test.py                   # probe-quality, must pass
 
-# Codebase dataset (no GPU; long-running)
+# Codebase dataset (no GPU; long-running, resumable — just re-run after a stop)
 $PY scripts/collect_advisories.py --refresh    # refresh the 8,186-advisory index
-$PY scripts/harvest_codebase.py --triage-batch 300 --verify --loop
+$PY scripts/harvest_codebase.py --triage-batch 150 --verify --loop --workers 6 --min-free-gb 10
 
 # Train (GPU box only) — the one command that needs a GPU
 $PY scripts/train_grpo.py --config configs/final_coder15_mixed.yaml --no-eval
+
+# ...or train on AWS Batch (after aws/README.md one-time setup + quota check)
+export AWS_REGION=us-east-1 ACCOUNT=<id> BUCKET=<bucket> QUEUE=pgym-gpu-queue
+bash aws/submit.sh            # fire-and-forget; results in s3://$BUCKET/pgym/
+aws s3 sync s3://$BUCKET/pgym ./runs_from_s3
+
+# Publish (owner, with GitHub credentials)
+git -c safe.directory=$PWD push origin main
 
 # Evaluate + compare (GPU for generation)
 $PY scripts/evaluate.py ...   &&   $PY scripts/compare_evals.py <base.json> <trained.json>
@@ -300,6 +362,18 @@ $PY scripts/evaluate.py ...   &&   $PY scripts/compare_evals.py <base.json> <tra
   (production container grader, validated on vyper), `verify_codebase_task.py`,
   `harvest_codebase.py`, `advisory_feasibility.py`.
 - Added `setup.sh`; updated `README.md` and `REPORT.md`; wrote this handoff.
-- Open: GPU provisioning (owner action); verification-yield engineering (§6.2);
-  frontier calibration (needs API); re-measure training on the hardened grader.
-```
+- Found and fixed three bugs in the container grader while validating it on
+  vyper: a patch-path mismatch that silently skipped the gold patch; `git
+  checkout` of test files deleting the uncommitted frozen tests; and `-rA` text
+  parsing breaking on test ids that contain newlines (switched to JUnit XML and
+  whole-file runs). Fail-to-pass is now "passes after, did not pass before",
+  as in SWE-bench.
+- Parallelised the harvester (thread pool, atomic locked ledger, disk guard,
+  build-cache pruning, resume of stranded specs). Reclaimed 34 GB of Docker
+  build cache. Verified tasks grew 1 → 17 and are now git-tracked.
+- Added the AWS Batch GPU training job (`aws/`).
+- Fast-forwarded the feature branch into `main` and deleted it, at the owner's
+  request.
+- Open: push to GitHub and GPU provisioning (owner actions); verification-yield
+  engineering (§6.2); frontier calibration (needs API); re-measure training on
+  the hardened grader.

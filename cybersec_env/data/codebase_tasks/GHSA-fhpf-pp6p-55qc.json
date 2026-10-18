@@ -1,0 +1,69 @@
+{
+  "id": "GHSA-fhpf-pp6p-55qc",
+  "aliases": [
+    "CVE-2022-23607",
+    "PYSEC-2022-26"
+  ],
+  "cwes": [
+    "CWE-200",
+    "CWE-425",
+    "CWE-601"
+  ],
+  "severity": "HIGH",
+  "package": "treq",
+  "repo": {
+    "owner": "twisted",
+    "name": "treq",
+    "url": "https://github.com/twisted/treq"
+  },
+  "base_commit": "d89d553240f1c1e434bb137e5ce53877c54285e6",
+  "fix_commit": "1da6022cc880bbcff59321abe02bf8498b89efb2",
+  "python_requires": ">=3.6",
+  "changed_source_files": [
+    "src/treq/client.py"
+  ],
+  "changed_test_files": [
+    "src/treq/test/test_testing.py",
+    "src/treq/test/test_treq_integration.py"
+  ],
+  "source_patch": "diff --git a/src/treq/client.py b/src/treq/client.py\nindex 213c4fb..0d0c52c 100644\n--- a/src/treq/client.py\n+++ b/src/treq/client.py\n@@ -3,7 +3,7 @@ import mimetypes\n import uuid\n import warnings\n from collections.abc import Mapping\n-from http.cookiejar import CookieJar\n+from http.cookiejar import CookieJar, Cookie\n from urllib.parse import quote_plus, urlencode as _urlencode\n \n from twisted.internet.interfaces import IProtocol\n@@ -30,7 +30,7 @@ from json import dumps as json_dumps\n from treq.auth import add_auth\n from treq import multipart\n from treq.response import _Response\n-from requests.cookies import cookiejar_from_dict, merge_cookies\n+from requests.cookies import merge_cookies\n \n \n _NOTHING = object()\n@@ -43,6 +43,56 @@ def urlencode(query, doseq):\n     return s\n \n \n+def _scoped_cookiejar_from_dict(url_object, cookie_dict):\n+    \"\"\"\n+    Create a CookieJar from a dictionary whose cookies are all scoped to the\n+    given URL's origin.\n+\n+    @note: This does not scope the cookies to any particular path, only the\n+        host, port, and scheme of the given URL.\n+    \"\"\"\n+    cookie_jar = CookieJar()\n+    if cookie_dict is None:\n+        return cookie_jar\n+    for k, v in cookie_dict.items():\n+        secure = url_object.scheme == 'https'\n+        port_specified = not (\n+            (url_object.scheme == \"https\" and url_object.port == 443)\n+            or (url_object.scheme == \"http\" and url_object.port == 80)\n+        )\n+        port = str(url_object.port)\n+        domain = url_object.host\n+        netscape_domain = domain if '.' in domain else domain + '.local'\n+\n+        cookie_jar.set_cookie(\n+            Cookie(\n+                # Scoping\n+                domain=netscape_domain,\n+                port=port,\n+                secure=secure,\n+                port_specified=port_specified,\n+\n+                # Contents\n+                name=k,\n+                value=v,\n+\n+                # Constant/always-the-same stuff\n+                version=0,\n+                path=\"/\",\n+                expires=None,\n+                discard=False,\n+                comment=None,\n+                comment_url=None,\n+                rfc2109=False,\n+                path_specified=False,\n+                domain_specified=False,\n+                domain_initial_dot=False,\n+                rest=[],\n+            )\n+        )\n+    return cookie_jar\n+\n+\n class _BodyBufferingProtocol(proxyForInterface(IProtocol)):\n     def __init__(self, original, buffer, finished):\n         self.original = original\n@@ -98,7 +148,9 @@ class HTTPClient:\n     def __init__(self, agent, cookiejar=None,\n                  data_to_body_producer=IBodyProducer):\n         self._agent = agent\n-        self._cookiejar = cookiejar or cookiejar_from_dict({})\n+        if cookiejar is None:\n+            cookiejar = CookieJar()\n+        self._cookiejar = cookiejar\n         self._data_to_body_producer = data_to_body_producer\n \n     def get(self, url, **kwargs):\n@@ -195,7 +247,7 @@ class HTTPClient:\n             headers.setRawHeaders(b'Content-Type', [contentType])\n \n         if not isinstance(cookies, CookieJar):\n-            cookies = cookiejar_from_dict(cookies)\n+            cookies = _scoped_cookiejar_from_dict(parsed_url, cookies)\n \n         cookies = merge_cookies(self._cookiejar, cookies)\n         wrapped_agent = CookieAgent(self._agent, cookies)\n",
+  "test_patch": "diff --git a/src/treq/test/test_testing.py b/src/treq/test/test_testing.py\nindex 1615472..1d30f9a 100644\n--- a/src/treq/test/test_testing.py\n+++ b/src/treq/test/test_testing.py\n@@ -3,6 +3,7 @@ In-memory treq returns stubbed responses.\n \"\"\"\n from functools import partial\n from inspect import getmembers, isfunction\n+from json import dumps\n \n from unittest.mock import ANY\n \n@@ -32,6 +33,26 @@ class _StaticTestResource(Resource):\n         return b\"I'm a teapot\"\n \n \n+class _RedirectResource(Resource):\n+    \"\"\"\n+    Resource that redirects to a different domain.\n+    \"\"\"\n+    isLeaf = True\n+\n+    def render(self, request):\n+        if b'redirected' not in request.uri:\n+            request.redirect(b'https://example.org/redirected')\n+        return dumps(\n+            {\n+                key.decode(\"charmap\"): [\n+                    value.decode(\"charmap\")\n+                    for value in values\n+                ]\n+                for key, values in\n+                request.requestHeaders.getAllRawHeaders()}\n+        ).encode(\"utf-8\")\n+\n+\n class _NonResponsiveTestResource(Resource):\n     \"\"\"Resource that returns NOT_DONE_YET and never finishes the request\"\"\"\n     isLeaf = True\n@@ -272,8 +293,10 @@ class StubbingTests(TestCase):\n \n     def test_session_persistence_between_requests(self):\n         \"\"\"\n-        Calling request.getSession() in the wrapped resource will return\n-        a session with the same ID, until the sessions are cleaned.\n+        Calling request.getSession() in the wrapped resource will return a\n+        session with the same ID, until the sessions are cleaned; in other\n+        words, cookies are propagated between requests when the result of\n+        C{response.cookies()} is passed to the next request.\n         \"\"\"\n         rsrc = _SessionIdTestResource()\n         stub = StubTreq(rsrc)\n@@ -304,6 +327,24 @@ class StubbingTests(TestCase):\n         sid_4 = self.successResultOf(resp.content())\n         self.assertEqual(sid_3, sid_4)\n \n+    def test_different_domains(self):\n+        \"\"\"\n+        Cookies manually specified as part of a dictionary are not relayed\n+        through redirects.\n+\n+        (This is really more of a test for scoping of cookies within treq\n+        itself, rather than just for testing.)\n+        \"\"\"\n+        rsrc = _RedirectResource()\n+        stub = StubTreq(rsrc)\n+        d = stub.request(\n+            \"GET\", \"http://example.com/\",\n+            cookies={\"not-across-redirect\": \"nope\"}\n+        )\n+        resp = self.successResultOf(d)\n+        received = self.successResultOf(resp.json())\n+        self.assertNotIn('not-across-redirect', received.get('Cookie', [''])[0])\n+\n \n class HasHeadersTests(TestCase):\n     \"\"\"\ndiff --git a/src/treq/test/test_treq_integration.py b/src/treq/test/test_treq_integration.py\nindex 14b81da..1518fb4 100644\n--- a/src/treq/test/test_treq_integration.py\n+++ b/src/treq/test/test_treq_integration.py\n@@ -29,6 +29,7 @@ def print_response(response):\n         print('---')\n         print(response.code)\n         print(response.headers)\n+        print(response.request.headers)\n         text = yield treq.text_content(response)\n         print(text)\n         print('---')\n",
+  "summary": "Unsafe handling of user-specified cookies in treq",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `treq` has a security vulnerability (CWE-200, CWE-425, CWE-601). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "src.treq.test.test_testing.StubbingTests::test_different_domains"
+  ],
+  "p2p_tests": [
+    "src.treq.test.test_testing.HasHeadersTests::test_bytes_encoded_forms",
+    "src.treq.test.test_testing.HasHeadersTests::test_case_insensitive_keys",
+    "src.treq.test.test_testing.HasHeadersTests::test_case_sensitive_values",
+    "src.treq.test.test_testing.HasHeadersTests::test_equality_and_strict_subsets_succeed",
+    "src.treq.test.test_testing.HasHeadersTests::test_partial_or_zero_intersection_subsets_fail",
+    "src.treq.test.test_testing.HasHeadersTests::test_repr",
+    "src.treq.test.test_testing.RequestSequenceTests::test_async_failures_logged",
+    "src.treq.test.test_testing.RequestSequenceTests::test_consume_context_manager_fails_on_remaining_requests",
+    "src.treq.test.test_testing.RequestSequenceTests::test_mismatched_request_causes_failure",
+    "src.treq.test.test_testing.RequestSequenceTests::test_unexpected_number_of_request_causes_failure",
+    "src.treq.test.test_testing.RequestSequenceTests::test_works_with_mock_any",
+    "src.treq.test.test_testing.StringStubbingTests::test_interacts_successfully_with_istub",
+    "src.treq.test.test_testing.StubbingTests::test_files_are_rejected",
+    "src.treq.test.test_testing.StubbingTests::test_handles_failing_asynchronous_requests",
+    "src.treq.test.test_testing.StubbingTests::test_handles_invalid_schemes",
+    "src.treq.test.test_testing.StubbingTests::test_handles_successful_asynchronous_requests",
+    "src.treq.test.test_testing.StubbingTests::test_handles_successful_asynchronous_requests_with_response_data",
+    "src.treq.test.test_testing.StubbingTests::test_handles_successful_asynchronous_requests_with_streaming",
+    "src.treq.test.test_testing.StubbingTests::test_passing_in_strange_data_is_rejected",
+    "src.treq.test.test_testing.StubbingTests::test_providing_resource_to_stub_treq",
+    "src.treq.test.test_testing.StubbingTests::test_session_persistence_between_requests",
+    "src.treq.test.test_testing.StubbingTests::test_stubtreq_provides_all_functions_in_treq_all"
+  ],
+  "test_files": [
+    "src/treq/test/test_testing.py",
+    "src/treq/test/test_treq_integration.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 22,
+  "n_after_pass": 23
+}

@@ -1,0 +1,67 @@
+{
+  "id": "GHSA-x2c2-q32w-4w6m",
+  "aliases": [
+    "CVE-2024-24567",
+    "PYSEC-2024-151"
+  ],
+  "cwes": [
+    "CWE-754"
+  ],
+  "severity": "MODERATE",
+  "package": "vyper",
+  "repo": {
+    "owner": "vyperlang",
+    "name": "vyper",
+    "url": "https://github.com/vyperlang/vyper"
+  },
+  "base_commit": "768b3e9baa04264980ea2fc5600e2f2356b69d3b",
+  "fix_commit": "a2df08888c318713742c57f71465f32a1c27ed72",
+  "python_requires": ">=3.10,<4",
+  "changed_source_files": [
+    "vyper/builtins/functions.py"
+  ],
+  "changed_test_files": [
+    "tests/functional/builtins/codegen/test_raw_call.py"
+  ],
+  "source_patch": "diff --git a/vyper/builtins/functions.py b/vyper/builtins/functions.py\nindex 8ee6f5f..50ab4da 100644\n--- a/vyper/builtins/functions.py\n+++ b/vyper/builtins/functions.py\n@@ -1114,13 +1114,16 @@ class RawCall(BuiltinFunctionT):\n \n         if delegate_call and static_call:\n             raise ArgumentException(\n-                \"Call may use one of `is_delegate_call` or `is_static_call`, not both\", expr\n+                \"Call may use one of `is_delegate_call` or `is_static_call`, not both\"\n             )\n+\n+        if (delegate_call or static_call) and value.value != 0:\n+            raise ArgumentException(\"value= may not be passed for static or delegate calls!\")\n+\n         if not static_call and context.is_constant():\n             raise StateAccessViolation(\n                 f\"Cannot make modifying calls from {context.pp_constancy()},\"\n-                \" use `is_static_call=True` to perform this action\",\n-                expr,\n+                \" use `is_static_call=True` to perform this action\"\n             )\n \n         if data.value == \"~calldata\":\n",
+  "test_patch": "diff --git a/tests/functional/builtins/codegen/test_raw_call.py b/tests/functional/builtins/codegen/test_raw_call.py\nindex 4d37176..b75b5da 100644\n--- a/tests/functional/builtins/codegen/test_raw_call.py\n+++ b/tests/functional/builtins/codegen/test_raw_call.py\n@@ -608,6 +608,22 @@ def foo(_addr: address):\n     (\n         \"\"\"\n @external\n+def foo(_addr: address):\n+    raw_call(_addr, method_id(\"foo()\"), is_delegate_call=True, value=1)\n+    \"\"\",\n+        ArgumentException,\n+    ),\n+    (\n+        \"\"\"\n+@external\n+def foo(_addr: address):\n+    raw_call(_addr, method_id(\"foo()\"), is_static_call=True, value=1)\n+    \"\"\",\n+        ArgumentException,\n+    ),\n+    (\n+        \"\"\"\n+@external\n @view\n def foo(_addr: address):\n     raw_call(_addr, 256)\n",
+  "summary": "Vyper's raw_call `value=` kwargs not disabled for static and delegate calls",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `vyper` has a security vulnerability (CWE-754). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.functional.builtins.codegen.test_raw_call::test_invalid_type_exception[False-\\n@external\\ndef foo(_addr: address):\\n    raw_call(_addr, method_id(\"foo()\"), is_delegate_call=True, value=1)\\n    -ArgumentException]",
+    "tests.functional.builtins.codegen.test_raw_call::test_invalid_type_exception[False-\\n@external\\ndef foo(_addr: address):\\n    raw_call(_addr, method_id(\"foo()\"), is_static_call=True, value=1)\\n    -ArgumentException]"
+  ],
+  "p2p_tests": [
+    "tests.functional.builtins.codegen.test_raw_call::test_checkable_raw_call[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_delegate_call[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_forward_calldata[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_gas[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_invalid_type_exception[False-\\n@external\\n@view\\ndef foo(_addr: address):\\n    raw_call(_addr, 256)\\n    -InvalidType]",
+    "tests.functional.builtins.codegen.test_raw_call::test_invalid_type_exception[False-\\n@external\\n@view\\ndef foo(_addr: address):\\n    raw_call(_addr, method_id(\"foo()\"))\\n    -StateAccessViolation]",
+    "tests.functional.builtins.codegen.test_raw_call::test_invalid_type_exception[False-\\n@external\\ndef foo(_addr: address):\\n    raw_call(_addr, method_id(\"foo()\"), is_delegate_call=True, is_static_call=True)\\n    -ArgumentException]",
+    "tests.functional.builtins.codegen.test_raw_call::test_max_outsize_0[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_max_outsize_0_call[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_max_outsize_0_no_revert_on_failure[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_max_outsize_exceeds_returndatasize[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_multiple_levels2[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_multiple_levels[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_clean_mem2[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_clean_mem3[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_clean_mem_kwargs_gas[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_clean_mem_kwargs_value[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_msg_data_clean_mem[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_raw_call_non_memory[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_returndatasize_exceeds_max_outsize[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_returndatasize_matches_max_outsize[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_static_call[False]",
+    "tests.functional.builtins.codegen.test_raw_call::test_static_call_fails_nonpayable[False]"
+  ],
+  "test_files": [
+    "tests/functional/builtins/codegen/test_raw_call.py"
+  ],
+  "python": "3.10",
+  "n_before_pass": 23,
+  "n_after_pass": 25
+}

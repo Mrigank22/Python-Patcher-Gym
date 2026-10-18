@@ -1,0 +1,64 @@
+{
+  "id": "GHSA-cf56-g6w6-pqq2",
+  "aliases": [
+    "CVE-2024-41810",
+    "PYSEC-2024-75"
+  ],
+  "cwes": [
+    "CWE-79"
+  ],
+  "severity": "MODERATE",
+  "package": "twisted",
+  "repo": {
+    "owner": "twisted",
+    "name": "twisted",
+    "url": "https://github.com/twisted/twisted"
+  },
+  "base_commit": "4a930de12fb67e88fefcb8822104152f42b27abc",
+  "fix_commit": "046a164f89a0f08d3239ecebd750360f8914df33",
+  "python_requires": ">=3.8.0",
+  "changed_source_files": [
+    "src/twisted/web/_template_util.py"
+  ],
+  "changed_test_files": [
+    "src/twisted/web/test/test_util.py"
+  ],
+  "source_patch": "diff --git a/src/twisted/web/_template_util.py b/src/twisted/web/_template_util.py\nindex f4c4aba..501941a 100644\n--- a/src/twisted/web/_template_util.py\n+++ b/src/twisted/web/_template_util.py\n@@ -92,7 +92,7 @@ def redirectTo(URL: bytes, request: IRequest) -> bytes:\n     </body>\n </html>\n \"\"\" % {\n-        b\"url\": URL\n+        b\"url\": escape(URL.decode(\"utf-8\")).encode(\"utf-8\")\n     }\n     return content\n \n",
+  "test_patch": "diff --git a/src/twisted/web/test/test_util.py b/src/twisted/web/test/test_util.py\nindex 1e76300..9847dcb 100644\n--- a/src/twisted/web/test/test_util.py\n+++ b/src/twisted/web/test/test_util.py\n@@ -5,7 +5,6 @@\n Tests for L{twisted.web.util}.\n \"\"\"\n \n-\n import gc\n \n from twisted.internet import defer\n@@ -64,6 +63,44 @@ class RedirectToTests(TestCase):\n         targetURL = \"http://target.example.com/4321\"\n         self.assertRaises(TypeError, redirectTo, targetURL, request)\n \n+    def test_legitimateRedirect(self):\n+        \"\"\"\n+        Legitimate URLs are fully interpolated in the `redirectTo` response body without transformation\n+        \"\"\"\n+        request = DummyRequest([b\"\"])\n+        html = redirectTo(b\"https://twisted.org/\", request)\n+        expected = b\"\"\"\n+<html>\n+    <head>\n+        <meta http-equiv=\\\"refresh\\\" content=\\\"0;URL=https://twisted.org/\\\">\n+    </head>\n+    <body bgcolor=\\\"#FFFFFF\\\" text=\\\"#000000\\\">\n+    <a href=\\\"https://twisted.org/\\\">click here</a>\n+    </body>\n+</html>\n+\"\"\"\n+        self.assertEqual(html, expected)\n+\n+    def test_maliciousRedirect(self):\n+        \"\"\"\n+        Malicious URLs are HTML-escaped before interpolating them in the `redirectTo` response body\n+        \"\"\"\n+        request = DummyRequest([b\"\"])\n+        html = redirectTo(\n+            b'https://twisted.org/\"><script>alert(document.location)</script>', request\n+        )\n+        expected = b\"\"\"\n+<html>\n+    <head>\n+        <meta http-equiv=\\\"refresh\\\" content=\\\"0;URL=https://twisted.org/&quot;&gt;&lt;script&gt;alert(document.location)&lt;/script&gt;\\\">\n+    </head>\n+    <body bgcolor=\\\"#FFFFFF\\\" text=\\\"#000000\\\">\n+    <a href=\\\"https://twisted.org/&quot;&gt;&lt;script&gt;alert(document.location)&lt;/script&gt;\\\">click here</a>\n+    </body>\n+</html>\n+\"\"\"\n+        self.assertEqual(html, expected)\n+\n \n class ParentRedirectTests(SynchronousTestCase):\n     \"\"\"\n",
+  "summary": "Twisted vulnerable to HTML injection in HTTP redirect body",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `twisted` has a security vulnerability (CWE-79). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "src.twisted.web.test.test_util.RedirectToTests::test_maliciousRedirect"
+  ],
+  "p2p_tests": [
+    "src.twisted.web.test.test_util.DeferredResourceTests::testDeferredResource",
+    "src.twisted.web.test.test_util.DeferredResourceTests::test_render",
+    "src.twisted.web.test.test_util.DeferredResourceTests::test_renderNoFailure",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementTraceback",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementType",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementValue",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementFilename",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementFunction",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementLineNumber",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementSource",
+    "src.twisted.web.test.test_util.FailureElementTests::test_sourceFragmentElement",
+    "src.twisted.web.test.test_util.FailureElementTests::test_sourceLineElement",
+    "src.twisted.web.test.test_util.FailureElementTests::test_stackElement",
+    "src.twisted.web.test.test_util.FormatFailureTests::test_flattenerError",
+    "src.twisted.web.test.test_util.FormatFailureTests::test_returnsBytes",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationRoot",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationToRoot",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationUpOne",
+    "src.twisted.web.test.test_util.RedirectToTests::test_headersAndCode",
+    "src.twisted.web.test.test_util.RedirectToTests::test_legitimateRedirect",
+    "src.twisted.web.test.test_util.RedirectToTests::test_redirectToUnicodeURL"
+  ],
+  "test_files": [
+    "src/twisted/web/test/test_util.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 21,
+  "n_after_pass": 22
+}

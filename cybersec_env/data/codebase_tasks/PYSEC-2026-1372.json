@@ -1,0 +1,52 @@
+{
+  "id": "PYSEC-2026-1372",
+  "aliases": [
+    "CVE-2026-22609",
+    "GHSA-q5qq-mvfm-j35x"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P",
+  "package": "fickling",
+  "repo": {
+    "owner": "trailofbits",
+    "name": "fickling",
+    "url": "https://github.com/trailofbits/fickling"
+  },
+  "base_commit": "eb299b453342f1931c787bcb3bc33f3a03a173f9",
+  "fix_commit": "29d5545e74b07766892c1f0461b801afccee4f91",
+  "python_requires": ">=3.9",
+  "changed_source_files": [
+    "fickling/fickle.py"
+  ],
+  "changed_test_files": [
+    "test/test_bypasses.py"
+  ],
+  "source_patch": "diff --git a/fickling/fickle.py b/fickling/fickle.py\nindex c0269c8..d87c380 100644\n--- a/fickling/fickle.py\n+++ b/fickling/fickle.py\n@@ -882,6 +882,9 @@ on the Pickled object instead\"\"\"\n                 \"cProfile\",\n                 \"ctypes\",\n                 \"pydoc\",\n+                \"importlib\",\n+                \"code\",\n+                \"multiprocessing\",\n             ):\n                 yield node\n             elif \"eval\" in (n.name for n in node.names):\n",
+  "test_patch": "diff --git a/test/test_bypasses.py b/test/test_bypasses.py\nindex 8d3d6a5..614bd2a 100644\n--- a/test/test_bypasses.py\n+++ b/test/test_bypasses.py\n@@ -222,3 +222,129 @@ class TestBypasses(TestCase):\n             res.detailed_results()[\"AnalysisResult\"].get(\"UnsafeImports\"),\n             \"from pydoc import locate\",\n         )\n+\n+    # https://github.com/trailofbits/fickling/security/advisories/GHSA-q5qq-mvfm-j35x\n+    def test_missing_importlib(self):\n+        pickled = Pickled(\n+            [\n+                op.Proto.create(5),\n+                op.ShortBinUnicode(\"builtins\"),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"getattr\"),\n+                op.Memoize(),\n+                op.StackGlobal(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"importlib\"),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"import_module\"),\n+                op.Memoize(),\n+                op.StackGlobal(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"os\"),\n+                op.Memoize(),\n+                op.TupleOne(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"system\"),\n+                op.Memoize(),\n+                op.TupleTwo(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"id\"),\n+                op.Memoize(),\n+                op.TupleOne(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.Stop(),\n+            ]\n+        )\n+        res = check_safety(pickled)\n+        self.assertGreater(res.severity, Severity.LIKELY_SAFE)\n+        self.assertEqual(\n+            res.detailed_results()[\"AnalysisResult\"].get(\"UnsafeImports\"),\n+            \"from importlib import import_module\",\n+        )\n+\n+    # https://github.com/trailofbits/fickling/security/advisories/GHSA-q5qq-mvfm-j35x\n+    def test_missing_code(self):\n+        pickled = Pickled(\n+            [\n+                op.Proto.create(5),\n+                op.ShortBinUnicode(\"builtins\"),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"getattr\"),\n+                op.Memoize(),\n+                op.StackGlobal(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"code\"),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"InteractiveInterpreter\"),\n+                op.Memoize(),\n+                op.StackGlobal(),\n+                op.Memoize(),\n+                op.EmptyTuple(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"runsource\"),\n+                op.Memoize(),\n+                op.TupleTwo(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.ShortBinUnicode('import os; os.system(\"id\")'),\n+                op.Memoize(),\n+                op.TupleOne(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.Stop(),\n+            ]\n+        )\n+        res = check_safety(pickled)\n+        self.assertGreater(res.severity, Severity.LIKELY_SAFE)\n+        self.assertEqual(\n+            res.detailed_results()[\"AnalysisResult\"].get(\"UnsafeImports\"),\n+            \"from code import InteractiveInterpreter\",\n+        )\n+\n+    # https://github.com/trailofbits/fickling/security/advisories/GHSA-q5qq-mvfm-j35x\n+    def test_missing_multiprocessing(self):\n+        pickled = Pickled(\n+            [\n+                op.Proto.create(5),\n+                op.Frame(74),\n+                op.ShortBinUnicode(\"multiprocessing.util\"),\n+                op.Memoize(),\n+                op.ShortBinUnicode(\"spawnv_passfds\"),\n+                op.Memoize(),\n+                op.StackGlobal(),\n+                op.Memoize(),\n+                op.ShortBinBytes(b\"/bin/sh\"),\n+                op.Memoize(),\n+                op.EmptyList(),\n+                op.Memoize(),\n+                op.Mark(),\n+                op.BinGet(3),\n+                op.ShortBinBytes(b\"-c\"),\n+                op.Memoize(),\n+                op.ShortBinBytes(b\"id\"),\n+                op.Memoize(),\n+                op.Appends(),\n+                op.EmptyTuple(),\n+                op.TupleThree(),\n+                op.Memoize(),\n+                op.Reduce(),\n+                op.Memoize(),\n+                op.Stop(),\n+            ]\n+        )\n+        res = check_safety(pickled)\n+        self.assertGreater(res.severity, Severity.LIKELY_SAFE)\n+        self.assertEqual(\n+            res.detailed_results()[\"AnalysisResult\"].get(\"UnsafeImports\"),\n+            \"from multiprocessing.util import spawnv_passfds\",\n+        )\n",
+  "summary": "Fickling has Static Analysis Bypass via Incomplete Dangerous Module Blocklist",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `fickling` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "test.test_bypasses.TestBypasses::test_missing_code",
+    "test.test_bypasses.TestBypasses::test_missing_importlib",
+    "test.test_bypasses.TestBypasses::test_missing_multiprocessing"
+  ],
+  "p2p_tests": [
+    "test.test_bypasses.TestBypasses::test_missing_cprofile",
+    "test.test_bypasses.TestBypasses::test_missing_ctypes",
+    "test.test_bypasses.TestBypasses::test_missing_marshal_and_types",
+    "test.test_bypasses.TestBypasses::test_missing_pty_unsafe_imports_ghsa",
+    "test.test_bypasses.TestBypasses::test_missing_pty_unsafe_imports_pr",
+    "test.test_bypasses.TestBypasses::test_missing_pydoc",
+    "test.test_bypasses.TestBypasses::test_missing_runpy"
+  ],
+  "test_files": [
+    "test/test_bypasses.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 7,
+  "n_after_pass": 10
+}
