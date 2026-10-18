@@ -24,7 +24,7 @@
     and 18 regression tests. 121 tests pass.
   - Built the **codebase-track pipeline** (collect → triage → verify), a
     **production container grader**, and a **parallel, resumable harvester**.
-  - **17 verified codebase tasks so far** from real packages (Django, Requests,
+  - **18 verified codebase tasks at last commit** (live count: `ls cybersec_env/data/codebase_tasks | wc -l`) from real packages (Django, Requests,
     Tornado, Twisted, Gradio, yt-dlp, Waitress, Vyper, …) across all eras; tracked
     in git under `cybersec_env/data/codebase_tasks/`.
   - Built an **AWS Batch GPU training job** (`aws/`) that trains and saves to S3
@@ -191,7 +191,7 @@ This is the production grader labs want and the one with no residual.
     `before={0,0,0}` = the historical package didn't `pip install`, so no tests
     ran; plus collection errors).
   - **End to end: ~5% of advisories become verified tasks** right now.
-- **Verified tasks so far: 17** (tracked in `cybersec_env/data/codebase_tasks/`),
+- **Verified tasks at last commit: 18** (tracked in `cybersec_env/data/codebase_tasks/`),
   e.g. Django (legacy), Requests CWE-522 (legacy), Waitress (legacy, 13
   fail-to-pass tests), Twisted CWE-200/346, Vyper CWE-754, Tornado CWE-444 and
   CWE-93, Gradio CWE-22, yt-dlp CWE-434 (111 fail-to-pass tests), Roundup
@@ -370,7 +370,7 @@ $PY scripts/evaluate.py ...   &&   $PY scripts/compare_evals.py <base.json> <tra
   as in SWE-bench.
 - Parallelised the harvester (thread pool, atomic locked ledger, disk guard,
   build-cache pruning, resume of stranded specs). Reclaimed 34 GB of Docker
-  build cache. Verified tasks grew 1 → 17 and are now git-tracked.
+  build cache. Verified tasks grew 1 → 18 and are now git-tracked.
 - Added the AWS Batch GPU training job (`aws/`).
 - Fast-forwarded the feature branch into `main` and deleted it, at the owner's
   request.
