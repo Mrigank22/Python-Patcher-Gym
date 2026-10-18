@@ -37,7 +37,7 @@ dev = ["pytest>=8"]
 cybersec-env-server = "cybersec_env.server.app:main"
 
 [tool.setuptools]
-packages = ["cybersec_env", "cybersec_env.tasks", "cybersec_env.server"]
+packages = ["cybersec_env", "cybersec_env.tasks", "cybersec_env.server", "cybersec_env.codebase"]
 
 [tool.setuptools.package-data]
 cybersec_env = ["py.typed", "data/imported/*.jsonl", "data/imported/*.md"]
