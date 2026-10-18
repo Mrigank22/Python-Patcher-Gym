@@ -1,0 +1,32 @@
+# GPU training image for AWS Batch (or any GPU host).
+# Build from the REPO ROOT so the whole project is the build context:
+#   docker build -f aws/Dockerfile.train -t <ecr-uri>:latest .
+#
+# Base ships CUDA 12.4 + PyTorch, so we only add the training stack and the
+# grader's runtime deps (the reward runs the grader during training).
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_INPUT=1 PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/root/.cache/huggingface PYTHONIOENCODING=utf-8
+
+# git for any runtime clone/resume; bubblewrap for the grader OS jail (it
+# degrades to process-only automatically if the container has no user
+# namespaces, which is fine for our own training); awscli to sync to S3.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git bubblewrap ca-certificates curl unzip \
+ && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip \
+ && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws* \
+ && rm -rf /var/lib/apt/lists/*
+
+# Training + grader runtime deps (torch already in the base).
+RUN pip install --no-cache-dir \
+      "trl>=1.16" "transformers>=5" "peft>=0.21" "accelerate>=1" "datasets>=3" \
+      pydantic pyyaml fastapi uvicorn pytest lxml PyJWT argon2-cffi matplotlib
+
+WORKDIR /workspace
+# Bake the repo in (committed imported-task data travels with it). To iterate on
+# code without rebuilding, set REPO_GIT at runtime to clone a branch instead.
+COPY . /workspace
+ENV PYTHONPATH=/workspace
+
+ENTRYPOINT ["bash", "aws/entrypoint.sh"]
