@@ -1,0 +1,2293 @@
+{
+  "total_usd": 2.124426,
+  "calls": [
+    {
+      "task_id": "(failed trial: up to 4 unreadable replies, worst-case estimate)",
+      "usd": 0.65,
+      "batch": false
+    },
+    {
+      "task_id": "path_traversal-2-100012",
+      "usd": 0.006304,
+      "batch": false,
+      "input_tokens": 301,
+      "output_tokens": 255
+    },
+    {
+      "task_id": "xss-2-100016",
+      "usd": 0.003384,
+      "batch": false,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "sqli-2-100021",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100004",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100006",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "path_traversal-2-100019",
+      "usd": 0.004292,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 369
+    },
+    {
+      "task_id": "sqli-2-100010",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "unsafe_deser-2-100005",
+      "usd": 0.002498,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 196
+    },
+    {
+      "task_id": "code_injection-2-100022",
+      "usd": 0.010692,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1014
+    },
+    {
+      "task_id": "path_traversal-2-100013",
+      "usd": 0.003032,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 243
+    },
+    {
+      "task_id": "path_traversal-2-100015",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "path_traversal-2-100002",
+      "usd": 0.003392,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 279
+    },
+    {
+      "task_id": "code_injection-2-100020",
+      "usd": 0.010352,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 980
+    },
+    {
+      "task_id": "code_injection-2-100024",
+      "usd": 0.009902,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 935
+    },
+    {
+      "task_id": "sqli-2-100017",
+      "usd": 0.001822,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "sqli-2-100014",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "code_injection-2-100002",
+      "usd": 0.010022,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 947
+    },
+    {
+      "task_id": "unsafe_deser-2-100001",
+      "usd": 0.003058,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 252
+    },
+    {
+      "task_id": "code_injection-2-100018",
+      "usd": 0.010612,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1006
+    },
+    {
+      "task_id": "unsafe_deser-2-100008",
+      "usd": 0.002618,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 208
+    },
+    {
+      "task_id": "code_injection-2-100007",
+      "usd": 0.009462,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 891
+    },
+    {
+      "task_id": "unsafe_deser-2-100012",
+      "usd": 0.003378,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 284
+    },
+    {
+      "task_id": "unsafe_deser-2-100016",
+      "usd": 0.002538,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 200
+    },
+    {
+      "task_id": "sqli-2-100015",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "unsafe_deser-2-100010",
+      "usd": 0.002328,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 179
+    },
+    {
+      "task_id": "unsafe_deser-2-100013",
+      "usd": 0.002578,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 204
+    },
+    {
+      "task_id": "code_injection-2-100023",
+      "usd": 0.010882,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1033
+    },
+    {
+      "task_id": "unsafe_deser-2-100011",
+      "usd": 0.002608,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 207
+    },
+    {
+      "task_id": "sqli-2-100002",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100013",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100011",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100009",
+      "usd": 0.003172,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 257
+    },
+    {
+      "task_id": "path_traversal-2-100016",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "sqli-2-100023",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100005",
+      "usd": 0.001822,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "sqli-2-100012",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100001",
+      "usd": 0.003562,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 296
+    },
+    {
+      "task_id": "code_injection-2-100014",
+      "usd": 0.010622,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1007
+    },
+    {
+      "task_id": "code_injection-2-100010",
+      "usd": 0.010502,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 995
+    },
+    {
+      "task_id": "sqli-2-100019",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100005",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "path_traversal-2-100024",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "path_traversal-2-100010",
+      "usd": 0.003382,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 278
+    },
+    {
+      "task_id": "code_injection-2-100019",
+      "usd": 0.009752,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 920
+    },
+    {
+      "task_id": "code_injection-2-100006",
+      "usd": 0.010522,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 997
+    },
+    {
+      "task_id": "code_injection-2-100005",
+      "usd": 0.009432,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 888
+    },
+    {
+      "task_id": "unsafe_deser-2-100015",
+      "usd": 0.002758,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 222
+    },
+    {
+      "task_id": "path_traversal-2-100000",
+      "usd": 0.004362,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 376
+    },
+    {
+      "task_id": "unsafe_deser-2-100002",
+      "usd": 0.002288,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 175
+    },
+    {
+      "task_id": "code_injection-2-100011",
+      "usd": 0.010062,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 951
+    },
+    {
+      "task_id": "code_injection-2-100015",
+      "usd": 0.010842,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1029
+    },
+    {
+      "task_id": "path_traversal-2-100017",
+      "usd": 0.002942,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 234
+    },
+    {
+      "task_id": "unsafe_deser-2-100007",
+      "usd": 0.002858,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 232
+    },
+    {
+      "task_id": "sqli-2-100016",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100006",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "unsafe_deser-2-100014",
+      "usd": 0.002718,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 218
+    },
+    {
+      "task_id": "path_traversal-2-100003",
+      "usd": 0.003262,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 266
+    },
+    {
+      "task_id": "unsafe_deser-2-100009",
+      "usd": 0.003128,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 259
+    },
+    {
+      "task_id": "sqli-2-100022",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "unsafe_deser-2-100006",
+      "usd": 0.002628,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 209
+    },
+    {
+      "task_id": "code_injection-2-100003",
+      "usd": 0.010252,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 970
+    },
+    {
+      "task_id": "sqli-2-100008",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100011",
+      "usd": 0.005052,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 445
+    },
+    {
+      "task_id": "code_injection-2-100001",
+      "usd": 0.011452,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1090
+    },
+    {
+      "task_id": "code_injection-2-100000",
+      "usd": 0.009562,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 901
+    },
+    {
+      "task_id": "path_traversal-2-100018",
+      "usd": 0.003082,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 248
+    },
+    {
+      "task_id": "code_injection-2-100017",
+      "usd": 0.010152,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 960
+    },
+    {
+      "task_id": "path_traversal-2-100021",
+      "usd": 0.002872,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 227
+    },
+    {
+      "task_id": "code_injection-2-100021",
+      "usd": 0.010732,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1018
+    },
+    {
+      "task_id": "unsafe_deser-2-100003",
+      "usd": 0.003088,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 255
+    },
+    {
+      "task_id": "sqli-2-100000",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100001",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "code_injection-2-100012",
+      "usd": 0.011212,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1066
+    },
+    {
+      "task_id": "sqli-2-100007",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100023",
+      "usd": 0.003272,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 267
+    },
+    {
+      "task_id": "unsafe_deser-2-100000",
+      "usd": 0.002768,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 223
+    },
+    {
+      "task_id": "path_traversal-2-100022",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "code_injection-2-100004",
+      "usd": 0.011402,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1085
+    },
+    {
+      "task_id": "sqli-2-100020",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "code_injection-2-100013",
+      "usd": 0.011002,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1045
+    },
+    {
+      "task_id": "path_traversal-2-100014",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "unsafe_deser-2-100004",
+      "usd": 0.003018,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 248
+    },
+    {
+      "task_id": "code_injection-2-100009",
+      "usd": 0.010922,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1037
+    },
+    {
+      "task_id": "path_traversal-2-100004",
+      "usd": 0.003142,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 254
+    },
+    {
+      "task_id": "path_traversal-2-100008",
+      "usd": 0.002552,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 195
+    },
+    {
+      "task_id": "path_traversal-2-100020",
+      "usd": 0.003272,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 267
+    },
+    {
+      "task_id": "sqli-2-100003",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "sqli-2-100009",
+      "usd": 0.001822,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "sqli-2-100024",
+      "usd": 0.001582,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 100
+    },
+    {
+      "task_id": "path_traversal-2-100007",
+      "usd": 0.003272,
+      "batch": true,
+      "input_tokens": 301,
+      "output_tokens": 267
+    },
+    {
+      "task_id": "sqli-2-100018",
+      "usd": 0.001662,
+      "batch": true,
+      "input_tokens": 291,
+      "output_tokens": 108
+    },
+    {
+      "task_id": "code_injection-2-100016",
+      "usd": 0.011932,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 1138
+    },
+    {
+      "task_id": "code_injection-2-100008",
+      "usd": 0.010352,
+      "batch": true,
+      "input_tokens": 276,
+      "output_tokens": 980
+    },
+    {
+      "task_id": "weak_hash-2-100019",
+      "usd": 0.002426,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 190
+    },
+    {
+      "task_id": "weak_hash-2-100022",
+      "usd": 0.002516,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 199
+    },
+    {
+      "task_id": "weak_hash-2-100023",
+      "usd": 0.004356,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 383
+    },
+    {
+      "task_id": "ssrf-2-100006",
+      "usd": 0.00485,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 432
+    },
+    {
+      "task_id": "ssrf-2-100013",
+      "usd": 0.00478,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 425
+    },
+    {
+      "task_id": "xss-2-100021",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100002",
+      "usd": 0.002396,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 187
+    },
+    {
+      "task_id": "unsafe_deser-2-100022",
+      "usd": 0.002468,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 193
+    },
+    {
+      "task_id": "ssrf-2-100004",
+      "usd": 0.00578,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 525
+    },
+    {
+      "task_id": "ssrf-2-100010",
+      "usd": 0.00432,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 379
+    },
+    {
+      "task_id": "weak_hash-2-100009",
+      "usd": 0.005796,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 527
+    },
+    {
+      "task_id": "xss-2-100006",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100007",
+      "usd": 0.003246,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 272
+    },
+    {
+      "task_id": "xss-2-100018",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "ssrf-2-100014",
+      "usd": 0.00467,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 414
+    },
+    {
+      "task_id": "weak_hash-2-100001",
+      "usd": 0.001976,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 145
+    },
+    {
+      "task_id": "weak_hash-2-100008",
+      "usd": 0.003356,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 283
+    },
+    {
+      "task_id": "ssrf-2-100015",
+      "usd": 0.00558,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 505
+    },
+    {
+      "task_id": "xss-2-100002",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100013",
+      "usd": 0.002946,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 242
+    },
+    {
+      "task_id": "ssrf-2-100022",
+      "usd": 0.00606,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 553
+    },
+    {
+      "task_id": "ssrf-2-100002",
+      "usd": 0.00527,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 474
+    },
+    {
+      "task_id": "xss-2-100014",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "xss-2-100020",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100024",
+      "usd": 0.002398,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 186
+    },
+    {
+      "task_id": "unsafe_deser-2-100021",
+      "usd": 0.002798,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 226
+    },
+    {
+      "task_id": "weak_hash-2-100018",
+      "usd": 0.002796,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 227
+    },
+    {
+      "task_id": "ssrf-2-100003",
+      "usd": 0.00469,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 416
+    },
+    {
+      "task_id": "xss-2-100023",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "xss-2-100000",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100020",
+      "usd": 0.003028,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 249
+    },
+    {
+      "task_id": "ssrf-2-100020",
+      "usd": 0.00575,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 522
+    },
+    {
+      "task_id": "ssrf-2-100023",
+      "usd": 0.00552,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 499
+    },
+    {
+      "task_id": "ssrf-2-100009",
+      "usd": 0.00591,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 538
+    },
+    {
+      "task_id": "weak_hash-2-100017",
+      "usd": 0.002426,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 190
+    },
+    {
+      "task_id": "xss-2-100012",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100018",
+      "usd": 0.003438,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 290
+    },
+    {
+      "task_id": "xss-2-100024",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "ssrf-2-100007",
+      "usd": 0.00561,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 508
+    },
+    {
+      "task_id": "ssrf-2-100012",
+      "usd": 0.00561,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 508
+    },
+    {
+      "task_id": "ssrf-2-100017",
+      "usd": 0.0054,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 487
+    },
+    {
+      "task_id": "ssrf-2-100019",
+      "usd": 0.00544,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 491
+    },
+    {
+      "task_id": "ssrf-2-100001",
+      "usd": 0.00605,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 552
+    },
+    {
+      "task_id": "insecure_random-2-100000",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "weak_hash-2-100016",
+      "usd": 0.002506,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 198
+    },
+    {
+      "task_id": "xss-2-100007",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100017",
+      "usd": 0.002558,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 202
+    },
+    {
+      "task_id": "weak_hash-2-100006",
+      "usd": 0.002686,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 216
+    },
+    {
+      "task_id": "weak_hash-2-100011",
+      "usd": 0.002596,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 207
+    },
+    {
+      "task_id": "xss-2-100017",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "ssrf-2-100011",
+      "usd": 0.00609,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 556
+    },
+    {
+      "task_id": "weak_hash-2-100012",
+      "usd": 0.004036,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 351
+    },
+    {
+      "task_id": "xss-2-100010",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "ssrf-2-100016",
+      "usd": 0.0057,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 517
+    },
+    {
+      "task_id": "xss-2-100004",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100015",
+      "usd": 0.002506,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 198
+    },
+    {
+      "task_id": "ssrf-2-100024",
+      "usd": 0.00536,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 483
+    },
+    {
+      "task_id": "xss-2-100019",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100005",
+      "usd": 0.004056,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 353
+    },
+    {
+      "task_id": "xss-2-100003",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "insecure_random-2-100002",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "weak_hash-2-100004",
+      "usd": 0.002506,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 198
+    },
+    {
+      "task_id": "ssrf-2-100018",
+      "usd": 0.00658,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 605
+    },
+    {
+      "task_id": "ssrf-2-100021",
+      "usd": 0.00613,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 560
+    },
+    {
+      "task_id": "ssrf-2-100008",
+      "usd": 0.00606,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 553
+    },
+    {
+      "task_id": "xss-2-100011",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "ssrf-2-100005",
+      "usd": 0.00467,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 414
+    },
+    {
+      "task_id": "xss-2-100008",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100023",
+      "usd": 0.003228,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 269
+    },
+    {
+      "task_id": "weak_hash-2-100000",
+      "usd": 0.003226,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 270
+    },
+    {
+      "task_id": "xss-2-100005",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "xss-2-100009",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "unsafe_deser-2-100019",
+      "usd": 0.002878,
+      "batch": true,
+      "input_tokens": 269,
+      "output_tokens": 234
+    },
+    {
+      "task_id": "weak_hash-2-100021",
+      "usd": 0.002426,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 190
+    },
+    {
+      "task_id": "ssrf-2-100000",
+      "usd": 0.00466,
+      "batch": true,
+      "input_tokens": 265,
+      "output_tokens": 413
+    },
+    {
+      "task_id": "xss-2-100015",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "insecure_random-2-100001",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "weak_hash-2-100014",
+      "usd": 0.001896,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "weak_hash-2-100010",
+      "usd": 0.003016,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 249
+    },
+    {
+      "task_id": "xss-2-100022",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100024",
+      "usd": 0.002516,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 199
+    },
+    {
+      "task_id": "weak_hash-2-100003",
+      "usd": 0.004946,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 442
+    },
+    {
+      "task_id": "xss-2-100013",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "xss-2-100001",
+      "usd": 0.001692,
+      "batch": true,
+      "input_tokens": 251,
+      "output_tokens": 119
+    },
+    {
+      "task_id": "weak_hash-2-100020",
+      "usd": 0.002966,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 244
+    },
+    {
+      "task_id": "insecure_random-2-100014",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100005",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100021",
+      "usd": 0.001546,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 98
+    },
+    {
+      "task_id": "insecure_random-2-100016",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100018",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100013",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100024",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100011",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100019",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100017",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100007",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100006",
+      "usd": 0.001546,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 98
+    },
+    {
+      "task_id": "insecure_random-2-100015",
+      "usd": 0.001806,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "insecure_random-2-100012",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100008",
+      "usd": 0.001806,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "insecure_random-2-100023",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100004",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100009",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100003",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100020",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "insecure_random-2-100022",
+      "usd": 0.001806,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 124
+    },
+    {
+      "task_id": "insecure_random-2-100010",
+      "usd": 0.001936,
+      "batch": true,
+      "input_tokens": 283,
+      "output_tokens": 137
+    },
+    {
+      "task_id": "seccodeplt-1-81",
+      "usd": 0.005644,
+      "batch": true,
+      "input_tokens": 387,
+      "output_tokens": 487
+    },
+    {
+      "task_id": "seccodeplt-1-111",
+      "usd": 0.004834,
+      "batch": true,
+      "input_tokens": 372,
+      "output_tokens": 409
+    },
+    {
+      "task_id": "seccodeplt-1-162",
+      "usd": 0.005036,
+      "batch": true,
+      "input_tokens": 438,
+      "output_tokens": 416
+    },
+    {
+      "task_id": "seccodeplt-1-268",
+      "usd": 0.003922,
+      "batch": true,
+      "input_tokens": 531,
+      "output_tokens": 286
+    },
+    {
+      "task_id": "seccodeplt-1-400",
+      "usd": 0.006886,
+      "batch": true,
+      "input_tokens": 538,
+      "output_tokens": 581
+    },
+    {
+      "task_id": "seccodeplt-1-119",
+      "usd": 0.003662,
+      "batch": true,
+      "input_tokens": 416,
+      "output_tokens": 283
+    },
+    {
+      "task_id": "seccodeplt-1-46",
+      "usd": 0.003678,
+      "batch": true,
+      "input_tokens": 414,
+      "output_tokens": 285
+    },
+    {
+      "task_id": "seccodeplt-1-121",
+      "usd": 0.008072,
+      "batch": true,
+      "input_tokens": 541,
+      "output_tokens": 699
+    },
+    {
+      "task_id": "seccodeplt-1-406",
+      "usd": 0.007662,
+      "batch": true,
+      "input_tokens": 371,
+      "output_tokens": 692
+    },
+    {
+      "task_id": "seccodeplt-1-132",
+      "usd": 0.003576,
+      "batch": true,
+      "input_tokens": 453,
+      "output_tokens": 267
+    },
+    {
+      "task_id": "seccodeplt-1-164",
+      "usd": 0.00541,
+      "batch": true,
+      "input_tokens": 330,
+      "output_tokens": 475
+    },
+    {
+      "task_id": "seccodeplt-1-245",
+      "usd": 0.004772,
+      "batch": true,
+      "input_tokens": 381,
+      "output_tokens": 401
+    },
+    {
+      "task_id": "seccodeplt-1-324",
+      "usd": 0.005668,
+      "batch": true,
+      "input_tokens": 469,
+      "output_tokens": 473
+    },
+    {
+      "task_id": "seccodeplt-1-311",
+      "usd": 0.007352,
+      "batch": true,
+      "input_tokens": 466,
+      "output_tokens": 642
+    },
+    {
+      "task_id": "seccodeplt-1-208",
+      "usd": 0.001944,
+      "batch": true,
+      "input_tokens": 297,
+      "output_tokens": 135
+    },
+    {
+      "task_id": "seccodeplt-1-249",
+      "usd": 0.004068,
+      "batch": true,
+      "input_tokens": 334,
+      "output_tokens": 340
+    },
+    {
+      "task_id": "seccodeplt-1-13",
+      "usd": 0.00575,
+      "batch": true,
+      "input_tokens": 565,
+      "output_tokens": 462
+    },
+    {
+      "task_id": "seccodeplt-1-347",
+      "usd": 0.005266,
+      "batch": true,
+      "input_tokens": 543,
+      "output_tokens": 418
+    },
+    {
+      "task_id": "seccodeplt-1-40",
+      "usd": 0.004872,
+      "batch": true,
+      "input_tokens": 481,
+      "output_tokens": 391
+    },
+    {
+      "task_id": "seccodeplt-1-139",
+      "usd": 0.002652,
+      "batch": true,
+      "input_tokens": 261,
+      "output_tokens": 213
+    },
+    {
+      "task_id": "seccodeplt-1-48",
+      "usd": 0.004772,
+      "batch": true,
+      "input_tokens": 511,
+      "output_tokens": 375
+    },
+    {
+      "task_id": "seccodeplt-1-86",
+      "usd": 0.007102,
+      "batch": true,
+      "input_tokens": 566,
+      "output_tokens": 597
+    },
+    {
+      "task_id": "seccodeplt-1-199",
+      "usd": 0.005308,
+      "batch": true,
+      "input_tokens": 429,
+      "output_tokens": 445
+    },
+    {
+      "task_id": "seccodeplt-1-108",
+      "usd": 0.009204,
+      "batch": true,
+      "input_tokens": 412,
+      "output_tokens": 838
+    },
+    {
+      "task_id": "seccodeplt-1-45",
+      "usd": 0.009072,
+      "batch": true,
+      "input_tokens": 551,
+      "output_tokens": 797
+    },
+    {
+      "task_id": "seccodeplt-1-246",
+      "usd": 0.00532,
+      "batch": true,
+      "input_tokens": 535,
+      "output_tokens": 425
+    },
+    {
+      "task_id": "seccodeplt-1-317",
+      "usd": 0.002056,
+      "batch": true,
+      "input_tokens": 363,
+      "output_tokens": 133
+    },
+    {
+      "task_id": "seccodeplt-1-259",
+      "usd": 0.006436,
+      "batch": true,
+      "input_tokens": 623,
+      "output_tokens": 519
+    },
+    {
+      "task_id": "seccodeplt-1-47",
+      "usd": 0.005682,
+      "batch": true,
+      "input_tokens": 581,
+      "output_tokens": 452
+    },
+    {
+      "task_id": "seccodeplt-1-101",
+      "usd": 0.004776,
+      "batch": true,
+      "input_tokens": 478,
+      "output_tokens": 382
+    },
+    {
+      "task_id": "seccodeplt-1-29",
+      "usd": 0.007206,
+      "batch": true,
+      "input_tokens": 473,
+      "output_tokens": 626
+    },
+    {
+      "task_id": "seccodeplt-1-297",
+      "usd": 0.006652,
+      "batch": true,
+      "input_tokens": 536,
+      "output_tokens": 558
+    },
+    {
+      "task_id": "seccodeplt-1-263",
+      "usd": 0.002264,
+      "batch": true,
+      "input_tokens": 282,
+      "output_tokens": 170
+    },
+    {
+      "task_id": "seccodeplt-1-161",
+      "usd": 0.002596,
+      "batch": true,
+      "input_tokens": 403,
+      "output_tokens": 179
+    },
+    {
+      "task_id": "seccodeplt-1-150",
+      "usd": 0.002192,
+      "batch": true,
+      "input_tokens": 376,
+      "output_tokens": 144
+    },
+    {
+      "task_id": "seccodeplt-1-255",
+      "usd": 0.004204,
+      "batch": true,
+      "input_tokens": 947,
+      "output_tokens": 231
+    },
+    {
+      "task_id": "seccodeplt-1-378",
+      "usd": 0.00502,
+      "batch": true,
+      "input_tokens": 525,
+      "output_tokens": 397
+    },
+    {
+      "task_id": "seccodeplt-1-52",
+      "usd": 0.005992,
+      "batch": true,
+      "input_tokens": 386,
+      "output_tokens": 522
+    },
+    {
+      "task_id": "seccodeplt-1-92",
+      "usd": 0.006436,
+      "batch": true,
+      "input_tokens": 428,
+      "output_tokens": 558
+    },
+    {
+      "task_id": "seccodeplt-1-190",
+      "usd": 0.00769,
+      "batch": true,
+      "input_tokens": 675,
+      "output_tokens": 634
+    },
+    {
+      "task_id": "seccodeplt-1-395",
+      "usd": 0.005064,
+      "batch": true,
+      "input_tokens": 342,
+      "output_tokens": 438
+    },
+    {
+      "task_id": "seccodeplt-1-11",
+      "usd": 0.002898,
+      "batch": true,
+      "input_tokens": 384,
+      "output_tokens": 213
+    },
+    {
+      "task_id": "seccodeplt-1-359",
+      "usd": 0.00741,
+      "batch": true,
+      "input_tokens": 675,
+      "output_tokens": 606
+    },
+    {
+      "task_id": "seccodeplt-1-137",
+      "usd": 0.007956,
+      "batch": true,
+      "input_tokens": 603,
+      "output_tokens": 675
+    },
+    {
+      "task_id": "seccodeplt-1-408",
+      "usd": 0.006052,
+      "batch": true,
+      "input_tokens": 471,
+      "output_tokens": 511
+    },
+    {
+      "task_id": "seccodeplt-1-175",
+      "usd": 0.00658,
+      "batch": true,
+      "input_tokens": 445,
+      "output_tokens": 569
+    },
+    {
+      "task_id": "seccodeplt-1-54",
+      "usd": 0.004888,
+      "batch": true,
+      "input_tokens": 484,
+      "output_tokens": 392
+    },
+    {
+      "task_id": "seccodeplt-1-60",
+      "usd": 0.004216,
+      "batch": true,
+      "input_tokens": 358,
+      "output_tokens": 350
+    },
+    {
+      "task_id": "seccodeplt-1-59",
+      "usd": 0.007504,
+      "batch": true,
+      "input_tokens": 382,
+      "output_tokens": 674
+    },
+    {
+      "task_id": "seccodeplt-1-170",
+      "usd": 0.005152,
+      "batch": true,
+      "input_tokens": 516,
+      "output_tokens": 412
+    },
+    {
+      "task_id": "seccodeplt-1-319",
+      "usd": 0.007352,
+      "batch": true,
+      "input_tokens": 476,
+      "output_tokens": 640
+    },
+    {
+      "task_id": "seccodeplt-1-387",
+      "usd": 0.007392,
+      "batch": true,
+      "input_tokens": 436,
+      "output_tokens": 652
+    },
+    {
+      "task_id": "seccodeplt-1-392",
+      "usd": 0.006006,
+      "batch": true,
+      "input_tokens": 563,
+      "output_tokens": 488
+    },
+    {
+      "task_id": "seccodeplt-1-217",
+      "usd": 0.003338,
+      "batch": true,
+      "input_tokens": 259,
+      "output_tokens": 282
+    },
+    {
+      "task_id": "seccodeplt-1-28",
+      "usd": 0.011204,
+      "batch": true,
+      "input_tokens": 512,
+      "output_tokens": 1018
+    },
+    {
+      "task_id": "seccodeplt-1-33",
+      "usd": 0.005046,
+      "batch": true,
+      "input_tokens": 433,
+      "output_tokens": 418
+    },
+    {
+      "task_id": "seccodeplt-1-231",
+      "usd": 0.01464,
+      "batch": true,
+      "input_tokens": 550,
+      "output_tokens": 1354
+    },
+    {
+      "task_id": "seccodeplt-1-166",
+      "usd": 0.007208,
+      "batch": true,
+      "input_tokens": 459,
+      "output_tokens": 629
+    },
+    {
+      "task_id": "seccodeplt-1-444",
+      "usd": 0.004466,
+      "batch": true,
+      "input_tokens": 263,
+      "output_tokens": 394
+    },
+    {
+      "task_id": "seccodeplt-1-36",
+      "usd": 0.008422,
+      "batch": true,
+      "input_tokens": 506,
+      "output_tokens": 741
+    },
+    {
+      "task_id": "seccodeplt-1-223",
+      "usd": 0.003998,
+      "batch": true,
+      "input_tokens": 449,
+      "output_tokens": 310
+    },
+    {
+      "task_id": "seccodeplt-1-134",
+      "usd": 0.004906,
+      "batch": true,
+      "input_tokens": 343,
+      "output_tokens": 422
+    },
+    {
+      "task_id": "seccodeplt-1-177",
+      "usd": 0.011192,
+      "batch": true,
+      "input_tokens": 626,
+      "output_tokens": 994
+    },
+    {
+      "task_id": "seccodeplt-1-24",
+      "usd": 0.006176,
+      "batch": true,
+      "input_tokens": 513,
+      "output_tokens": 515
+    },
+    {
+      "task_id": "seccodeplt-1-462",
+      "usd": 0.006888,
+      "batch": true,
+      "input_tokens": 524,
+      "output_tokens": 584
+    },
+    {
+      "task_id": "seccodeplt-1-398",
+      "usd": 0.004846,
+      "batch": true,
+      "input_tokens": 378,
+      "output_tokens": 409
+    },
+    {
+      "task_id": "seccodeplt-1-69",
+      "usd": 0.008352,
+      "batch": true,
+      "input_tokens": 536,
+      "output_tokens": 728
+    },
+    {
+      "task_id": "seccodeplt-1-334",
+      "usd": 0.005372,
+      "batch": true,
+      "input_tokens": 351,
+      "output_tokens": 467
+    },
+    {
+      "task_id": "seccodeplt-1-153",
+      "usd": 0.005696,
+      "batch": true,
+      "input_tokens": 538,
+      "output_tokens": 462
+    },
+    {
+      "task_id": "seccodeplt-1-377",
+      "usd": 0.005446,
+      "batch": true,
+      "input_tokens": 413,
+      "output_tokens": 462
+    },
+    {
+      "task_id": "seccodeplt-1-273",
+      "usd": 0.006944,
+      "batch": true,
+      "input_tokens": 537,
+      "output_tokens": 587
+    },
+    {
+      "task_id": "seccodeplt-1-283",
+      "usd": 0.004216,
+      "batch": true,
+      "input_tokens": 368,
+      "output_tokens": 348
+    },
+    {
+      "task_id": "seccodeplt-1-435",
+      "usd": 0.00586,
+      "batch": true,
+      "input_tokens": 380,
+      "output_tokens": 510
+    },
+    {
+      "task_id": "seccodeplt-1-370",
+      "usd": 0.006448,
+      "batch": true,
+      "input_tokens": 464,
+      "output_tokens": 552
+    },
+    {
+      "task_id": "seccodeplt-1-337",
+      "usd": 0.007078,
+      "batch": true,
+      "input_tokens": 569,
+      "output_tokens": 594
+    },
+    {
+      "task_id": "seccodeplt-1-198",
+      "usd": 0.006436,
+      "batch": true,
+      "input_tokens": 628,
+      "output_tokens": 518
+    },
+    {
+      "task_id": "seccodeplt-1-44",
+      "usd": 0.008658,
+      "batch": true,
+      "input_tokens": 444,
+      "output_tokens": 777
+    },
+    {
+      "task_id": "seccodeplt-1-296",
+      "usd": 0.021998,
+      "batch": true,
+      "input_tokens": 734,
+      "output_tokens": 2053
+    },
+    {
+      "task_id": "seccodeplt-1-64",
+      "usd": 0.007136,
+      "batch": true,
+      "input_tokens": 343,
+      "output_tokens": 645
+    },
+    {
+      "task_id": "seccodeplt-1-466",
+      "usd": 0.014834,
+      "batch": true,
+      "input_tokens": 622,
+      "output_tokens": 1359
+    },
+    {
+      "task_id": "seccodeplt-1-95",
+      "usd": 0.002406,
+      "batch": true,
+      "input_tokens": 318,
+      "output_tokens": 177
+    },
+    {
+      "task_id": "seccodeplt-1-642",
+      "usd": 0.005918,
+      "batch": true,
+      "input_tokens": 524,
+      "output_tokens": 487
+    },
+    {
+      "task_id": "seccodeplt-1-531",
+      "usd": 0.00506,
+      "batch": true,
+      "input_tokens": 445,
+      "output_tokens": 417
+    },
+    {
+      "task_id": "seccodeplt-1-578",
+      "usd": 0.003074,
+      "batch": true,
+      "input_tokens": 292,
+      "output_tokens": 249
+    },
+    {
+      "task_id": "seccodeplt-1-512",
+      "usd": 0.00584,
+      "batch": true,
+      "input_tokens": 545,
+      "output_tokens": 475
+    },
+    {
+      "task_id": "seccodeplt-1-508",
+      "usd": 0.004362,
+      "batch": true,
+      "input_tokens": 521,
+      "output_tokens": 332
+    },
+    {
+      "task_id": "seccodeplt-1-553",
+      "usd": 0.004886,
+      "batch": true,
+      "input_tokens": 513,
+      "output_tokens": 386
+    },
+    {
+      "task_id": "seccodeplt-1-558",
+      "usd": 0.006794,
+      "batch": true,
+      "input_tokens": 442,
+      "output_tokens": 591
+    },
+    {
+      "task_id": "seccodeplt-1-527",
+      "usd": 0.003716,
+      "batch": true,
+      "input_tokens": 418,
+      "output_tokens": 288
+    },
+    {
+      "task_id": "seccodeplt-1-542",
+      "usd": 0.004828,
+      "batch": true,
+      "input_tokens": 384,
+      "output_tokens": 406
+    },
+    {
+      "task_id": "seccodeplt-1-506",
+      "usd": 0.004562,
+      "batch": true,
+      "input_tokens": 346,
+      "output_tokens": 387
+    },
+    {
+      "task_id": "seccodeplt-1-498",
+      "usd": 0.00668,
+      "batch": true,
+      "input_tokens": 420,
+      "output_tokens": 584
+    },
+    {
+      "task_id": "seccodeplt-1-633",
+      "usd": 0.003602,
+      "batch": true,
+      "input_tokens": 466,
+      "output_tokens": 267
+    },
+    {
+      "task_id": "seccodeplt-1-550",
+      "usd": 0.003942,
+      "batch": true,
+      "input_tokens": 486,
+      "output_tokens": 297
+    },
+    {
+      "task_id": "seccodeplt-1-612",
+      "usd": 0.001746,
+      "batch": true,
+      "input_tokens": 338,
+      "output_tokens": 107
+    },
+    {
+      "task_id": "seccodeplt-1-504",
+      "usd": 0.006628,
+      "batch": true,
+      "input_tokens": 639,
+      "output_tokens": 535
+    },
+    {
+      "task_id": "seccodeplt-1-645",
+      "usd": 0.006816,
+      "batch": true,
+      "input_tokens": 358,
+      "output_tokens": 610
+    },
+    {
+      "task_id": "seccodeplt-1-473",
+      "usd": 0.0048,
+      "batch": true,
+      "input_tokens": 475,
+      "output_tokens": 385
+    },
+    {
+      "task_id": "seccodeplt-1-513",
+      "usd": 0.00595,
+      "batch": true,
+      "input_tokens": 575,
+      "output_tokens": 480
+    },
+    {
+      "task_id": "seccodeplt-1-575",
+      "usd": 0.00739,
+      "batch": true,
+      "input_tokens": 400,
+      "output_tokens": 659
+    },
+    {
+      "task_id": "seccodeplt-1-595",
+      "usd": 0.005664,
+      "batch": true,
+      "input_tokens": 367,
+      "output_tokens": 493
+    },
+    {
+      "task_id": "seccodeplt-1-543",
+      "usd": 0.006422,
+      "batch": true,
+      "input_tokens": 606,
+      "output_tokens": 521
+    },
+    {
+      "task_id": "seccodeplt-1-613",
+      "usd": 0.005316,
+      "batch": true,
+      "input_tokens": 418,
+      "output_tokens": 448
+    },
+    {
+      "task_id": "seccodeplt-1-554",
+      "usd": 0.00275,
+      "batch": true,
+      "input_tokens": 330,
+      "output_tokens": 209
+    },
+    {
+      "task_id": "seccodeplt-1-681",
+      "usd": 0.001558,
+      "batch": true,
+      "input_tokens": 309,
+      "output_tokens": 94
+    },
+    {
+      "task_id": "seccodeplt-1-487",
+      "usd": 0.00165,
+      "batch": true,
+      "input_tokens": 315,
+      "output_tokens": 102
+    },
+    {
+      "task_id": "seccodeplt-1-689",
+      "usd": 0.003332,
+      "batch": true,
+      "input_tokens": 441,
+      "output_tokens": 245
+    },
+    {
+      "task_id": "seccodeplt-1-669",
+      "usd": 0.003132,
+      "batch": true,
+      "input_tokens": 406,
+      "output_tokens": 232
+    },
+    {
+      "task_id": "seccodeplt-1-603",
+      "usd": 0.005068,
+      "batch": true,
+      "input_tokens": 434,
+      "output_tokens": 420
+    },
+    {
+      "task_id": "seccodeplt-1-667",
+      "usd": 0.00723,
+      "batch": true,
+      "input_tokens": 625,
+      "output_tokens": 598
+    },
+    {
+      "task_id": "cweval-1-7",
+      "usd": 0.00317,
+      "batch": true,
+      "input_tokens": 385,
+      "output_tokens": 240
+    },
+    {
+      "task_id": "cweval-1-2",
+      "usd": 0.01101,
+      "batch": true,
+      "input_tokens": 425,
+      "output_tokens": 1016
+    },
+    {
+      "task_id": "cweval-1-3",
+      "usd": 0.0025,
+      "batch": true,
+      "input_tokens": 330,
+      "output_tokens": 184
+    },
+    {
+      "task_id": "cweval-1-0",
+      "usd": 0.007456,
+      "batch": true,
+      "input_tokens": 593,
+      "output_tokens": 627
+    },
+    {
+      "task_id": "cweval-1-8",
+      "usd": 0.003204,
+      "batch": true,
+      "input_tokens": 372,
+      "output_tokens": 246
+    },
+    {
+      "task_id": "cweval-1-5",
+      "usd": 0.00202,
+      "batch": true,
+      "input_tokens": 315,
+      "output_tokens": 139
+    },
+    {
+      "task_id": "cweval-1-15",
+      "usd": 0.004226,
+      "batch": true,
+      "input_tokens": 508,
+      "output_tokens": 321
+    },
+    {
+      "task_id": "cweval-1-1",
+      "usd": 0.004828,
+      "batch": true,
+      "input_tokens": 409,
+      "output_tokens": 401
+    },
+    {
+      "task_id": "cweval-1-12",
+      "usd": 0.005246,
+      "batch": true,
+      "input_tokens": 553,
+      "output_tokens": 414
+    },
+    {
+      "task_id": "cweval-1-6",
+      "usd": 0.001854,
+      "batch": true,
+      "input_tokens": 297,
+      "output_tokens": 126
+    },
+    {
+      "task_id": "cweval-1-14",
+      "usd": 0.004722,
+      "batch": true,
+      "input_tokens": 461,
+      "output_tokens": 380
+    },
+    {
+      "task_id": "cweval-1-9",
+      "usd": 0.003746,
+      "batch": true,
+      "input_tokens": 368,
+      "output_tokens": 301
+    },
+    {
+      "task_id": "cweval-1-11",
+      "usd": 0.007284,
+      "batch": true,
+      "input_tokens": 707,
+      "output_tokens": 587
+    },
+    {
+      "task_id": "cweval-1-13",
+      "usd": 0.005794,
+      "batch": true,
+      "input_tokens": 502,
+      "output_tokens": 479
+    },
+    {
+      "task_id": "cweval-1-10",
+      "usd": 0.003934,
+      "batch": true,
+      "input_tokens": 487,
+      "output_tokens": 296
+    },
+    {
+      "task_id": "cweval-1-4",
+      "usd": 0.007736,
+      "batch": true,
+      "input_tokens": 603,
+      "output_tokens": 653
+    }
+  ],
+  "open_batch": {}
+}

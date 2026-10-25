@@ -1,0 +1,136 @@
+{
+  "id": "GHSA-cpwx-vrp4-4pq7",
+  "aliases": [
+    "CVE-2025-27516",
+    "PYSEC-2026-1471"
+  ],
+  "cwes": [
+    "CWE-1336"
+  ],
+  "severity": "MODERATE",
+  "package": "jinja2",
+  "repo": {
+    "owner": "pallets",
+    "name": "jinja",
+    "url": "https://github.com/pallets/jinja"
+  },
+  "base_commit": "033c20015c7ca899ab52eb921bb0f08e6d3dd145",
+  "fix_commit": "90457bbf33b8662926ae65cdde4c4c32e756e403",
+  "python_requires": ">=3.7",
+  "changed_source_files": [
+    "src/jinja2/filters.py"
+  ],
+  "changed_test_files": [
+    "tests/test_security.py"
+  ],
+  "source_patch": "diff --git a/src/jinja2/filters.py b/src/jinja2/filters.py\nindex e5b5a00..2bcba4f 100644\n--- a/src/jinja2/filters.py\n+++ b/src/jinja2/filters.py\n@@ -6,6 +6,7 @@ import re\n import typing\n import typing as t\n from collections import abc\n+from inspect import getattr_static\n from itertools import chain\n from itertools import groupby\n \n@@ -1411,31 +1412,25 @@ def do_reverse(value: t.Union[str, t.Iterable[V]]) -> t.Union[str, t.Iterable[V]\n def do_attr(\n     environment: \"Environment\", obj: t.Any, name: str\n ) -> t.Union[Undefined, t.Any]:\n-    \"\"\"Get an attribute of an object.  ``foo|attr(\"bar\")`` works like\n-    ``foo.bar`` just that always an attribute is returned and items are not\n-    looked up.\n+    \"\"\"Get an attribute of an object. ``foo|attr(\"bar\")`` works like\n+    ``foo.bar``, but returns undefined instead of falling back to ``foo[\"bar\"]``\n+    if the attribute doesn't exist.\n \n     See :ref:`Notes on subscriptions <notes-on-subscriptions>` for more details.\n     \"\"\"\n+    # Environment.getattr will fall back to obj[name] if obj.name doesn't exist.\n+    # But we want to call env.getattr to get behavior such as sandboxing.\n+    # Determine if the attr exists first, so we know the fallback won't trigger.\n     try:\n-        name = str(name)\n-    except UnicodeError:\n-        pass\n-    else:\n-        try:\n-            value = getattr(obj, name)\n-        except AttributeError:\n-            pass\n-        else:\n-            if environment.sandboxed:\n-                environment = t.cast(\"SandboxedEnvironment\", environment)\n-\n-                if not environment.is_safe_attribute(obj, name, value):\n-                    return environment.unsafe_undefined(obj, name)\n-\n-            return value\n-\n-    return environment.undefined(obj=obj, name=name)\n+        # This avoids executing properties/descriptors, but misses __getattr__\n+        # and __getattribute__ dynamic attrs.\n+        getattr_static(obj, name)\n+    except AttributeError:\n+        # This finds dynamic attrs, and we know it's not a descriptor at this point.\n+        if not hasattr(obj, name):\n+            return environment.undefined(obj=obj, name=name)\n+\n+    return environment.getattr(obj, name)\n \n \n @typing.overload\n",
+  "test_patch": "diff --git a/tests/test_security.py b/tests/test_security.py\nindex 864d5f7..3a13781 100644\n--- a/tests/test_security.py\n+++ b/tests/test_security.py\n@@ -190,3 +190,13 @@ class TestStringFormatMap:\n \n         with pytest.raises(SecurityError):\n             t.render()\n+\n+    def test_attr_filter(self) -> None:\n+        env = SandboxedEnvironment()\n+        t = env.from_string(\n+            \"\"\"{{ \"{0.__call__.__builtins__[__import__]}\"\n+                  | attr(\"format\")(not_here) }}\"\"\"\n+        )\n+\n+        with pytest.raises(SecurityError):\n+            t.render()\n",
+  "summary": "Jinja2 vulnerable to sandbox breakout through attr filter selecting format method",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `jinja2` has a security vulnerability (CWE-1336). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_security.TestStringFormatMap::test_attr_filter"
+  ],
+  "p2p_tests": [
+    "tests.test_security.TestSandbox::test_attr_filter",
+    "tests.test_security.TestSandbox::test_binary_operator_intercepting",
+    "tests.test_security.TestSandbox::test_immutable_environment",
+    "tests.test_security.TestSandbox::test_restricted",
+    "tests.test_security.TestSandbox::test_template_data",
+    "tests.test_security.TestSandbox::test_unary_operator_intercepting",
+    "tests.test_security.TestSandbox::test_unsafe",
+    "tests.test_security.TestStringFormat::test_basic_format_all_okay",
+    "tests.test_security.TestStringFormat::test_basic_format_safety",
+    "tests.test_security.TestStringFormat::test_empty_braces_format",
+    "tests.test_security.TestStringFormat::test_safe_format_all_okay",
+    "tests.test_security.TestStringFormat::test_safe_format_safety",
+    "tests.test_security.TestStringFormatMap::test_basic_format_all_okay",
+    "tests.test_security.TestStringFormatMap::test_basic_format_safety",
+    "tests.test_security.TestStringFormatMap::test_indirect_call",
+    "tests.test_security.TestStringFormatMap::test_safe_format_all_okay"
+  ],
+  "test_files": [
+    "tests/test_security.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 16,
+  "n_after_pass": 17,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-cpwx-vrp4-4pq7",
+      "summary": "Jinja2 vulnerable to sandbox breakout through attr filter selecting format method",
+      "details": "An oversight in how the Jinja sandboxed environment interacts with the `|attr` filter allows an attacker that controls the content of a template to execute arbitrary Python code.\n\nTo exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates.\n\nJinja's sandbox does catch calls to `str.format` and ensures they don't escape the sandbox. However, it's possible to use the `|attr` filter to get a reference to a string's plain format method, bypassing the sandbox. After the fix, the `|attr` filter no longer bypasses the environment's attribute lookup.",
+      "aliases": [
+        "CVE-2025-27516",
+        "PYSEC-2026-1471"
+      ],
+      "published": "2025-03-05T20:40:14Z",
+      "modified": "2026-09-10T03:49:48.526758681Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-1336"
+      ],
+      "affected": [
+        {
+          "package": "jinja2",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "3.1.6"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/security/advisories/GHSA-cpwx-vrp4-4pq7"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-27516"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/commit/90457bbf33b8662926ae65cdde4c4c32e756e403"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/pallets/jinja"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/04/msg00022.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/04/msg00045.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-cpwx-vrp4-4pq7",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "90457bbf33b8662926ae65cdde4c4c32e756e403",
+      "authored_at": "2025-03-05T11:49:35-08:00",
+      "committed_at": "2025-03-05T11:49:35-08:00",
+      "message": "Merge commit from fork\n\nattr filter uses env.getattr",
+      "url": "https://github.com/pallets/jinja/commit/90457bbf33b8662926ae65cdde4c4c32e756e403"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T00:43:31+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

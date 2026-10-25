@@ -1,0 +1,373 @@
+{
+  "id": "GHSA-c2jg-hw38-jrqq",
+  "aliases": [
+    "CVE-2022-24801",
+    "PYSEC-2022-195"
+  ],
+  "cwes": [
+    "CWE-444"
+  ],
+  "severity": "CRITICAL",
+  "package": "twisted",
+  "repo": {
+    "owner": "twisted",
+    "name": "twisted",
+    "url": "https://github.com/twisted/twisted"
+  },
+  "base_commit": "de8e5a6e9bb27db39de1b48d9c7f77806520929f",
+  "fix_commit": "592217e951363d60e9cd99c5bbfd23d4615043ac",
+  "python_requires": "",
+  "changed_source_files": [
+    "src/twisted/web/http.py"
+  ],
+  "changed_test_files": [
+    "src/twisted/web/test/test_http.py"
+  ],
+  "source_patch": "diff --git a/src/twisted/web/http.py b/src/twisted/web/http.py\nindex a53ebc2..b80a55a 100644\n--- a/src/twisted/web/http.py\n+++ b/src/twisted/web/http.py\n@@ -108,7 +108,7 @@ import tempfile\n import time\n import warnings\n from io import BytesIO\n-from typing import AnyStr, Callable, Optional\n+from typing import AnyStr, Callable, Optional, Tuple\n from urllib.parse import (\n     ParseResultBytes,\n     unquote_to_bytes as unquote,\n@@ -410,10 +410,39 @@ def toChunk(data):\n     return (networkString(f\"{len(data):x}\"), b\"\\r\\n\", data, b\"\\r\\n\")\n \n \n-def fromChunk(data):\n+def _ishexdigits(b: bytes) -> bool:\n+    \"\"\"\n+    Is the string case-insensitively hexidecimal?\n+\n+    It must be composed of one or more characters in the ranges a-f, A-F\n+    and 0-9.\n+    \"\"\"\n+    for c in b:\n+        if c not in b\"0123456789abcdefABCDEF\":\n+            return False\n+    return b != b\"\"\n+\n+\n+def _hexint(b: bytes) -> int:\n+    \"\"\"\n+    Decode a hexadecimal integer.\n+\n+    Unlike L{int(b, 16)}, this raises L{ValueError} when the integer has\n+    a prefix like C{b'0x'}, C{b'+'}, or C{b'-'}, which is desirable when\n+    parsing network protocols.\n+    \"\"\"\n+    if not _ishexdigits(b):\n+        raise ValueError(b)\n+    return int(b, 16)\n+\n+\n+def fromChunk(data: bytes) -> Tuple[bytes, bytes]:\n     \"\"\"\n     Convert chunk to string.\n \n+    Note that this function is not specification compliant: it doesn't handle\n+    chunk extensions.\n+\n     @type data: C{bytes}\n \n     @return: tuple of (result, remaining) - both C{bytes}.\n@@ -422,7 +451,7 @@ def fromChunk(data):\n         byte string.\n     \"\"\"\n     prefix, rest = data.split(b\"\\r\\n\", 1)\n-    length = int(prefix, 16)\n+    length = _hexint(prefix)\n     if length < 0:\n         raise ValueError(\"Chunk length must be >= 0, not %d\" % (length,))\n     if rest[length : length + 2] != b\"\\r\\n\":\n@@ -1790,6 +1819,47 @@ class _IdentityTransferDecoder:\n maxChunkSizeLineLength = 1024\n \n \n+_chunkExtChars = (\n+    b\"\\t !\\\"#$%&'()*+,-./0123456789:;<=>?@\"\n+    b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`\"\n+    b\"abcdefghijklmnopqrstuvwxyz{|}~\"\n+    b\"\\x80\\x81\\x82\\x83\\x84\\x85\\x86\\x87\\x88\\x89\\x8a\\x8b\\x8c\\x8d\\x8e\\x8f\"\n+    b\"\\x90\\x91\\x92\\x93\\x94\\x95\\x96\\x97\\x98\\x99\\x9a\\x9b\\x9c\\x9d\\x9e\\x9f\"\n+    b\"\\xa0\\xa1\\xa2\\xa3\\xa4\\xa5\\xa6\\xa7\\xa8\\xa9\\xaa\\xab\\xac\\xad\\xae\\xaf\"\n+    b\"\\xb0\\xb1\\xb2\\xb3\\xb4\\xb5\\xb6\\xb7\\xb8\\xb9\\xba\\xbb\\xbc\\xbd\\xbe\\xbf\"\n+    b\"\\xc0\\xc1\\xc2\\xc3\\xc4\\xc5\\xc6\\xc7\\xc8\\xc9\\xca\\xcb\\xcc\\xcd\\xce\\xcf\"\n+    b\"\\xd0\\xd1\\xd2\\xd3\\xd4\\xd5\\xd6\\xd7\\xd8\\xd9\\xda\\xdb\\xdc\\xdd\\xde\\xdf\"\n+    b\"\\xe0\\xe1\\xe2\\xe3\\xe4\\xe5\\xe6\\xe7\\xe8\\xe9\\xea\\xeb\\xec\\xed\\xee\\xef\"\n+    b\"\\xf0\\xf1\\xf2\\xf3\\xf4\\xf5\\xf6\\xf7\\xf8\\xf9\\xfa\\xfb\\xfc\\xfd\\xfe\\xff\"\n+)\n+\"\"\"\n+Characters that are valid in a chunk extension.\n+\n+See RFC 7230 section 4.1.1::\n+\n+     chunk-ext      = *( \";\" chunk-ext-name [ \"=\" chunk-ext-val ] )\n+\n+     chunk-ext-name = token\n+     chunk-ext-val  = token / quoted-string\n+\n+And section 3.2.6::\n+\n+     token          = 1*tchar\n+\n+     tchar          = \"!\" / \"#\" / \"$\" / \"%\" / \"&\" / \"'\" / \"*\"\n+                    / \"+\" / \"-\" / \".\" / \"^\" / \"_\" / \"`\" / \"|\" / \"~\"\n+                    / DIGIT / ALPHA\n+                    ; any VCHAR, except delimiters\n+\n+     quoted-string  = DQUOTE *( qdtext / quoted-pair ) DQUOTE\n+     qdtext         = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text\n+     obs-text       = %x80-FF\n+\n+We don't check if chunk extensions are well-formed beyond validating that they\n+don't contain characters outside this range.\n+\"\"\"\n+\n+\n class _ChunkedTransferDecoder:\n     \"\"\"\n     Protocol for decoding I{chunked} Transfer-Encoding, as defined by RFC 7230,\n@@ -1883,14 +1953,19 @@ class _ChunkedTransferDecoder:\n         endOfLengthIndex = self._buffer.find(b\";\", 0, eolIndex)\n         if endOfLengthIndex == -1:\n             endOfLengthIndex = eolIndex\n+        rawLength = self._buffer[0:endOfLengthIndex]\n         try:\n-            length = int(self._buffer[0:endOfLengthIndex], 16)\n+            length = _hexint(rawLength)\n         except ValueError:\n             raise _MalformedChunkedDataError(\"Chunk-size must be an integer.\")\n \n-        if length < 0:\n-            raise _MalformedChunkedDataError(\"Chunk-size must not be negative.\")\n-        elif length == 0:\n+        ext = self._buffer[endOfLengthIndex + 1 : eolIndex]\n+        if ext and ext.translate(None, _chunkExtChars) != b\"\":\n+            raise _MalformedChunkedDataError(\n+                f\"Invalid characters in chunk extensions: {ext!r}.\"\n+            )\n+\n+        if length == 0:\n             self.state = \"TRAILER\"\n         else:\n             self.state = \"BODY\"\n@@ -2246,7 +2321,7 @@ class HTTPChannel(basic.LineReceiver, policies.TimeoutMixin):\n                 self.setRawMode()\n         elif line[0] in b\" \\t\":\n             # Continuation of a multi line header.\n-            self.__header = self.__header + b\"\\n\" + line\n+            self.__header += b\" \" + line.lstrip(b\" \\t\")\n         # Regular header line.\n         # Processing of header line is delayed to allow accumulating multi\n         # line headers.\n@@ -2274,6 +2349,8 @@ class HTTPChannel(basic.LineReceiver, policies.TimeoutMixin):\n \n         # Can this header determine the length?\n         if header == b\"content-length\":\n+            if not data.isdigit():\n+                return fail()\n             try:\n                 length = int(data)\n             except ValueError:\n@@ -2327,7 +2404,7 @@ class HTTPChannel(basic.LineReceiver, policies.TimeoutMixin):\n             return False\n \n         header = header.lower()\n-        data = data.strip()\n+        data = data.strip(b\" \\t\")\n \n         if not self._maybeChooseTransferDecoder(header, data):\n             return False\n",
+  "test_patch": "diff --git a/src/twisted/web/test/test_http.py b/src/twisted/web/test/test_http.py\nindex 7ffea4e..f304991 100644\n--- a/src/twisted/web/test/test_http.py\n+++ b/src/twisted/web/test/test_http.py\n@@ -1279,6 +1279,28 @@ class ChunkedTransferEncodingTests(unittest.TestCase):\n         p.dataReceived(b\"3; x-foo=bar\\r\\nabc\\r\\n\")\n         self.assertEqual(L, [b\"abc\"])\n \n+    def test_extensionsMalformed(self):\n+        \"\"\"\n+        L{_ChunkedTransferDecoder.dataReceived} raises\n+        L{_MalformedChunkedDataError} when the chunk extension fields contain\n+        invalid characters.\n+\n+        This is a potential request smuggling vector: see GHSA-c2jg-hw38-jrqq.\n+        \"\"\"\n+        invalidControl = (\n+            b\"\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\n\\x0b\\x0c\\r\\x0e\\x0f\"\n+            b\"\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x19\\x1a\\x1b\\x1c\\x1d\\x1e\\x1f\"\n+        )\n+        invalidDelimiter = b\"\\\\\"\n+        invalidDel = b\"\\x7f\"\n+        for b in invalidControl + invalidDelimiter + invalidDel:\n+            data = b\"3; \" + bytes((b,)) + b\"\\r\\nabc\\r\\n\"\n+            p = http._ChunkedTransferDecoder(\n+                lambda b: None,  # pragma: nocov\n+                lambda b: None,  # pragma: nocov\n+            )\n+            self.assertRaises(http._MalformedChunkedDataError, p.dataReceived, data)\n+\n     def test_oversizedChunkSizeLine(self):\n         \"\"\"\n         L{_ChunkedTransferDecoder.dataReceived} raises\n@@ -1334,6 +1356,22 @@ class ChunkedTransferEncodingTests(unittest.TestCase):\n             http._MalformedChunkedDataError, p.dataReceived, b\"-3\\r\\nabc\\r\\n\"\n         )\n \n+    def test_malformedChunkSizeHex(self):\n+        \"\"\"\n+        L{_ChunkedTransferDecoder.dataReceived} raises\n+        L{_MalformedChunkedDataError} when the chunk size is prefixed with\n+        \"0x\", as if it were a Python integer literal.\n+\n+        This is a potential request smuggling vector: see GHSA-c2jg-hw38-jrqq.\n+        \"\"\"\n+        p = http._ChunkedTransferDecoder(\n+            lambda b: None,  # pragma: nocov\n+            lambda b: None,  # pragma: nocov\n+        )\n+        self.assertRaises(\n+            http._MalformedChunkedDataError, p.dataReceived, b\"0x3\\r\\nabc\\r\\n\"\n+        )\n+\n     def test_malformedChunkEnd(self):\n         r\"\"\"\n         L{_ChunkedTransferDecoder.dataReceived} raises\n@@ -1446,6 +1484,8 @@ class ChunkingTests(unittest.TestCase, ResponseTestMixin):\n             chunked = b\"\".join(http.toChunk(s))\n             self.assertEqual((s, b\"\"), http.fromChunk(chunked))\n         self.assertRaises(ValueError, http.fromChunk, b\"-5\\r\\nmalformed!\\r\\n\")\n+        self.assertRaises(ValueError, http.fromChunk, b\"0xa\\r\\nmalformed!\\r\\n\")\n+        self.assertRaises(ValueError, http.fromChunk, b\"0XA\\r\\nmalformed!\\r\\n\")\n \n     def testConcatenatedChunks(self):\n         chunked = b\"\".join([b\"\".join(http.toChunk(t)) for t in self.strings])\n@@ -1703,7 +1743,12 @@ class ParsingTests(unittest.TestCase):\n         Line folded headers are handled by L{HTTPChannel} by replacing each\n         fold with a single space by the time they are made available to the\n         L{Request}. Any leading whitespace in the folded lines of the header\n-        value is preserved.\n+        value is replaced with a single space, per:\n+\n+            A server that receives an obs-fold in a request message ... MUST\n+            ... replace each received obs-fold with one or more SP octets prior\n+            to interpreting the field value or forwarding the message\n+            downstream.\n \n         See RFC 7230 section 3.2.4.\n         \"\"\"\n@@ -1740,15 +1785,65 @@ class ParsingTests(unittest.TestCase):\n         )\n         self.assertEqual(\n             request.requestHeaders.getRawHeaders(b\"space\"),\n-            [b\"space  space\"],\n+            [b\"space space\"],\n         )\n         self.assertEqual(\n             request.requestHeaders.getRawHeaders(b\"spaces\"),\n-            [b\"spaces   spaces    spaces\"],\n+            [b\"spaces spaces spaces\"],\n         )\n         self.assertEqual(\n             request.requestHeaders.getRawHeaders(b\"tab\"),\n-            [b\"t \\ta \\tb\"],\n+            [b\"t a b\"],\n+        )\n+\n+    def test_headerStripWhitespace(self):\n+        \"\"\"\n+        Leading and trailing space and tab characters are stripped from\n+        headers. Other forms of whitespace are preserved.\n+\n+        See RFC 7230 section 3.2.3 and 3.2.4.\n+        \"\"\"\n+        processed = []\n+\n+        class MyRequest(http.Request):\n+            def process(self):\n+                processed.append(self)\n+                self.finish()\n+\n+        requestLines = [\n+            b\"GET / HTTP/1.0\",\n+            b\"spaces:   spaces were stripped   \",\n+            b\"tabs: \\t\\ttabs were stripped\\t\\t\",\n+            b\"spaces-and-tabs: \\t \\t spaces and tabs were stripped\\t \\t\",\n+            b\"line-tab:   \\v vertical tab was preserved\\v\\t\",\n+            b\"form-feed: \\f form feed was preserved \\f  \",\n+            b\"\",\n+            b\"\",\n+        ]\n+\n+        self.runRequest(b\"\\n\".join(requestLines), MyRequest, 0)\n+        [request] = processed\n+        # All leading and trailing whitespace is stripped from the\n+        # header-value.\n+        self.assertEqual(\n+            request.requestHeaders.getRawHeaders(b\"spaces\"),\n+            [b\"spaces were stripped\"],\n+        )\n+        self.assertEqual(\n+            request.requestHeaders.getRawHeaders(b\"tabs\"),\n+            [b\"tabs were stripped\"],\n+        )\n+        self.assertEqual(\n+            request.requestHeaders.getRawHeaders(b\"spaces-and-tabs\"),\n+            [b\"spaces and tabs were stripped\"],\n+        )\n+        self.assertEqual(\n+            request.requestHeaders.getRawHeaders(b\"line-tab\"),\n+            [b\"\\v vertical tab was preserved\\v\"],\n+        )\n+        self.assertEqual(\n+            request.requestHeaders.getRawHeaders(b\"form-feed\"),\n+            [b\"\\f form feed was preserved \\f\"],\n         )\n \n     def test_tooManyHeaders(self):\n@@ -2315,6 +2410,58 @@ Hello,\n             ]\n         )\n \n+    def test_contentLengthMalformed(self):\n+        \"\"\"\n+        A request with a non-integer C{Content-Length} header fails with a 400\n+        response without calling L{Request.process}.\n+        \"\"\"\n+        self.assertRequestRejected(\n+            [\n+                b\"GET /a HTTP/1.1\",\n+                b\"Content-Length: MORE THAN NINE THOUSAND!\",\n+                b\"Host: host.invalid\",\n+                b\"\",\n+                b\"\",\n+                b\"x\" * 9001,\n+            ]\n+        )\n+\n+    def test_contentLengthTooPositive(self):\n+        \"\"\"\n+        A request with a C{Content-Length} header that begins with a L{+} fails\n+        with a 400 response without calling L{Request.process}.\n+\n+        This is a potential request smuggling vector: see GHSA-c2jg-hw38-jrqq.\n+        \"\"\"\n+        self.assertRequestRejected(\n+            [\n+                b\"GET /a HTTP/1.1\",\n+                b\"Content-Length: +100\",\n+                b\"Host: host.invalid\",\n+                b\"\",\n+                b\"\",\n+                b\"x\" * 100,\n+            ]\n+        )\n+\n+    def test_contentLengthNegative(self):\n+        \"\"\"\n+        A request with a C{Content-Length} header that is negative fails with\n+        a 400 response without calling L{Request.process}.\n+\n+        This is a potential request smuggling vector: see GHSA-c2jg-hw38-jrqq.\n+        \"\"\"\n+        self.assertRequestRejected(\n+            [\n+                b\"GET /a HTTP/1.1\",\n+                b\"Content-Length: -100\",\n+                b\"Host: host.invalid\",\n+                b\"\",\n+                b\"\",\n+                b\"x\" * 200,\n+            ]\n+        )\n+\n     def test_duplicateContentLengthsWithPipelinedRequests(self):\n         \"\"\"\n         Two pipelined requests, the first of which includes multiple\n@@ -4239,3 +4386,43 @@ class HTTPClientSanitizationTests(unittest.SynchronousTestCase):\n                 transport.value().splitlines(),\n                 [b\": \".join([sanitizedBytes, sanitizedBytes])],\n             )\n+\n+\n+class HexHelperTests(unittest.SynchronousTestCase):\n+    \"\"\"\n+    Test the L{http._hexint} and L{http._ishexdigits} helper functions.\n+    \"\"\"\n+\n+    badStrings = (b\"\", b\"0x1234\", b\"feds\", b\"-123\" b\"+123\")\n+\n+    def test_isHex(self):\n+        \"\"\"\n+        L{_ishexdigits()} returns L{True} for nonempy bytestrings containing\n+        hexadecimal digits.\n+        \"\"\"\n+        for s in (b\"10\", b\"abcdef\", b\"AB1234\", b\"fed\", b\"123467890\"):\n+            self.assertIs(True, http._ishexdigits(s))\n+\n+    def test_decodes(self):\n+        \"\"\"\n+        L{_hexint()} returns the integer equivalent of the input.\n+        \"\"\"\n+        self.assertEqual(10, http._hexint(b\"a\"))\n+        self.assertEqual(0x10, http._hexint(b\"10\"))\n+        self.assertEqual(0xABCD123, http._hexint(b\"abCD123\"))\n+\n+    def test_isNotHex(self):\n+        \"\"\"\n+        L{_ishexdigits()} returns L{False} for bytestrings that don't contain\n+        hexadecimal digits, including the empty string.\n+        \"\"\"\n+        for s in self.badStrings:\n+            self.assertIs(False, http._ishexdigits(s))\n+\n+    def test_decodeNotHex(self):\n+        \"\"\"\n+        L{_hexint()} raises L{ValueError} for bytestrings that can't\n+        be decoded.\n+        \"\"\"\n+        for s in self.badStrings:\n+            self.assertRaises(ValueError, http._hexint, s)\n",
+  "summary": "Inconsistent Interpretation of HTTP Requests in twisted.web",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `twisted` has a security vulnerability (CWE-444). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_extensionsMalformed",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_malformedChunkSizeHex",
+    "src.twisted.web.test.test_http.ChunkingTests::testChunks",
+    "src.twisted.web.test.test_http.HexHelperTests::test_decodeNotHex",
+    "src.twisted.web.test.test_http.HexHelperTests::test_decodes",
+    "src.twisted.web.test.test_http.HexHelperTests::test_isHex",
+    "src.twisted.web.test.test_http.HexHelperTests::test_isNotHex",
+    "src.twisted.web.test.test_http.ParsingTests::test_contentLengthNegative",
+    "src.twisted.web.test.test_http.ParsingTests::test_contentLengthTooPositive",
+    "src.twisted.web.test.test_http.ParsingTests::test_headerStripWhitespace",
+    "src.twisted.web.test.test_http.ParsingTests::test_headersMultiline"
+  ],
+  "p2p_tests": [
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelCanUnregisterWithNoProducer",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelIsAProducer",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelPropagatesPausedProductionToRequest",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelPropagatesProducingFromTransportToTransport",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelRejectsMultipleProducers",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelStaysPausedWhenRequestCompletes",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelStopRequestProducer",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelStopWithNoRequestOutstanding",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelToleratesDataWhenTransportPaused",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelToleratesPullProducers",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelUnregistersSelfWhenCallingLoseConnection",
+    "src.twisted.web.test.test_http.ChannelProductionTests::test_HTTPChannelUnregistersSelfWhenTimingOut",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_afterFinished",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_decoding",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_earlyConnectionLose",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_empty",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_extensions",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_extra",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_finish",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_finishedConnectionLose",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_long",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_malformedChunkEnd",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_malformedChunkEndFinal",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_malformedChunkSize",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_malformedChunkSizeNegative",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_newlines",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_oversizedChunkSizeLine",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_oversizedChunkSizeLinePartial",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_reentrantFinishedNoMoreData",
+    "src.twisted.web.test.test_http.ChunkedTransferEncodingTests::test_short",
+    "src.twisted.web.test.test_http.ChunkingTests::testConcatenatedChunks",
+    "src.twisted.web.test.test_http.ChunkingTests::test_chunkedResponses",
+    "src.twisted.web.test.test_http.ChunkingTests::test_multipartFormData",
+    "src.twisted.web.test.test_http.ClientStatusParsingTests::testBaseline",
+    "src.twisted.web.test.test_http.ClientStatusParsingTests::testNoMessage",
+    "src.twisted.web.test.test_http.ClientStatusParsingTests::testNoMessage_trailingSpace",
+    "src.twisted.web.test.test_http.DateTimeTests::testRoundtrip",
+    "src.twisted.web.test.test_http.DateTimeTests::testStringToDatetime",
+    "src.twisted.web.test.test_http.DeprecatedRequestAttributesTests::test_getClientIP",
+    "src.twisted.web.test.test_http.DeprecatedRequestAttributesTests::test_noLongerQueued",
+    "src.twisted.web.test.test_http.Expect100ContinueServerTests::test_HTTP10",
+    "src.twisted.web.test.test_http.Expect100ContinueServerTests::test_expect100ContinueHeader",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_GenericHTTPChannelPropagatesCallLater",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_factory",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_http11",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_http2_absent",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_protocolNone",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_protocolUnspecified",
+    "src.twisted.web.test.test_http.GenericHTTPChannelTests::test_unknownProtocol",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_buffer",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_connectionLostAfterForceClose",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_noPipeliningApi",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_requestBodyDefaultTimeout",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_requestBodyTimeout",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_transportForciblyClosed",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_transportNotAbortedAfterConnectionLost",
+    "src.twisted.web.test.test_http.HTTP0_9Tests::test_transportNotAbortedWithZeroAbortTimeout",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_buffer",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_connectionLostAfterForceClose",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_noPipelining",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_noPipeliningApi",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_requestBodyDefaultTimeout",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_requestBodyTimeout",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_transportForciblyClosed",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_transportNotAbortedAfterConnectionLost",
+    "src.twisted.web.test.test_http.HTTP1_0Tests::test_transportNotAbortedWithZeroAbortTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_buffer",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_connectionLostAfterForceClose",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_noPipelining",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_noPipeliningApi",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_requestBodyDefaultTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_requestBodyTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_transportForciblyClosed",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_transportNotAbortedAfterConnectionLost",
+    "src.twisted.web.test.test_http.HTTP1_1Tests::test_transportNotAbortedWithZeroAbortTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_buffer",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_connectionLostAfterForceClose",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_noPipelining",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_noPipeliningApi",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_requestBodyDefaultTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_requestBodyTimeout",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_transportForciblyClosed",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_transportNotAbortedAfterConnectionLost",
+    "src.twisted.web.test.test_http.HTTP1_1_close_Tests::test_transportNotAbortedWithZeroAbortTimeout",
+    "src.twisted.web.test.test_http.HTTPChannelSanitizationTests::test_writeHeadersSanitizesLinearWhitespace",
+    "src.twisted.web.test.test_http.HTTPClientSanitizationTests::test_sendHeaderSanitizesLinearWhitespace",
+    "src.twisted.web.test.test_http.HTTPLoopbackTests::testLoopback",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_earlyConnectionLose",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_exactAmountReceived",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_finishedConnectionLose",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_longString",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_rejectDataAfterFinished",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_shortStrings",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_unknownContentLength",
+    "src.twisted.web.test.test_http.IdentityTransferEncodingTests::test_unknownContentLengthConnectionLose",
+    "src.twisted.web.test.test_http.MultilineHeadersTests::test_extractHeader",
+    "src.twisted.web.test.test_http.MultilineHeadersTests::test_multilineHeaders",
+    "src.twisted.web.test.test_http.MultilineHeadersTests::test_noHeaders",
+    "src.twisted.web.test.test_http.ParsingTests::testCookies",
+    "src.twisted.web.test.test_http.ParsingTests::testGET",
+    "src.twisted.web.test.test_http.ParsingTests::test_basicAuth",
+    "src.twisted.web.test.test_http.ParsingTests::test_basicAuthException",
+    "src.twisted.web.test.test_http.ParsingTests::test_chunkedEncoding",
+    "src.twisted.web.test.test_http.ParsingTests::test_contentLengthAndTransferEncoding",
+    "src.twisted.web.test.test_http.ParsingTests::test_contentLengthAndTransferEncodingWithPipelinedRequests",
+    "src.twisted.web.test.test_http.ParsingTests::test_contentLengthMalformed",
+    "src.twisted.web.test.test_http.ParsingTests::test_duplicateContentLengths",
+    "src.twisted.web.test.test_http.ParsingTests::test_duplicateContentLengthsWithPipelinedRequests",
+    "src.twisted.web.test.test_http.ParsingTests::test_extraQuestionMark",
+    "src.twisted.web.test.test_http.ParsingTests::test_formPOSTRequest",
+    "src.twisted.web.test.test_http.ParsingTests::test_headerLimitPerRequest",
+    "src.twisted.web.test.test_http.ParsingTests::test_headers",
+    "src.twisted.web.test.test_http.ParsingTests::test_headersTooBigInitialCommand",
+    "src.twisted.web.test.test_http.ParsingTests::test_headersTooBigOtherHeaders",
+    "src.twisted.web.test.test_http.ParsingTests::test_headersTooBigPerRequest",
+    "src.twisted.web.test.test_http.ParsingTests::test_invalidContentLengthHeader",
+    "src.twisted.web.test.test_http.ParsingTests::test_invalidHeaderNoColon",
+    "src.twisted.web.test.test_http.ParsingTests::test_invalidHeaderOnlyColon",
+    "src.twisted.web.test.test_http.ParsingTests::test_invalidHeaderWhitespaceBeforeColon",
+    "src.twisted.web.test.test_http.ParsingTests::test_invalidNonAsciiMethod",
+    "src.twisted.web.test.test_http.ParsingTests::test_malformedChunkedEncoding",
+    "src.twisted.web.test.test_http.ParsingTests::test_multipartEmptyHeaderProcessingFailure",
+    "src.twisted.web.test.test_http.ParsingTests::test_multipartFileData",
+    "src.twisted.web.test.test_http.ParsingTests::test_multipartFormData",
+    "src.twisted.web.test.test_http.ParsingTests::test_multipartProcessingFailure",
+    "src.twisted.web.test.test_http.ParsingTests::test_tooManyHeaders",
+    "src.twisted.web.test.test_http.ParsingTests::test_transferEncodingIdentity",
+    "src.twisted.web.test.test_http.ParsingTests::test_unknownTransferEncoding",
+    "src.twisted.web.test.test_http.PersistenceTests::test_http09",
+    "src.twisted.web.test.test_http.PersistenceTests::test_http10",
+    "src.twisted.web.test.test_http.PersistenceTests::test_http11",
+    "src.twisted.web.test.test_http.PersistenceTests::test_http11Close",
+    "src.twisted.web.test.test_http.PipeliningBodyTests::test_noPipelining",
+    "src.twisted.web.test.test_http.PipeliningBodyTests::test_pipeliningReadLimit",
+    "src.twisted.web.test.test_http.QueryArgumentsTests::test_urlparse",
+    "src.twisted.web.test.test_http.QueryArgumentsTests::test_urlparseRejectsUnicode",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieSameSite",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieSanitization",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieWithAllArgumentsBytes",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieWithAllArgumentsUnicode",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieWithMinimumArgumentsBytes",
+    "src.twisted.web.test.test_http.RequestTests::test_addCookieWithMinimumArgumentsUnicode",
+    "src.twisted.web.test.test_http.RequestTests::test_connectionLost",
+    "src.twisted.web.test.test_http.RequestTests::test_connectionLostNotification",
+    "src.twisted.web.test.test_http.RequestTests::test_eq",
+    "src.twisted.web.test.test_http.RequestTests::test_eqWithNonRequest",
+    "src.twisted.web.test.test_http.RequestTests::test_finishAfterConnectionLost",
+    "src.twisted.web.test.test_http.RequestTests::test_finishCleansConnection",
+    "src.twisted.web.test.test_http.RequestTests::test_finishNotification",
+    "src.twisted.web.test.test_http.RequestTests::test_finishProducerStillRegistered",
+    "src.twisted.web.test.test_http.RequestTests::test_finishProducesLog",
+    "src.twisted.web.test.test_http.RequestTests::test_firstWrite",
+    "src.twisted.web.test.test_http.RequestTests::test_firstWriteHTTP11Chunked",
+    "src.twisted.web.test.test_http.RequestTests::test_firstWriteLastModified",
+    "src.twisted.web.test.test_http.RequestTests::test_getAllHeaders",
+    "src.twisted.web.test.test_http.RequestTests::test_getAllHeadersMultipleHeaders",
+    "src.twisted.web.test.test_http.RequestTests::test_getAllHeadersNoHeaders",
+    "src.twisted.web.test.test_http.RequestTests::test_getClientAddress",
+    "src.twisted.web.test.test_http.RequestTests::test_getClientIPWithIPv4",
+    "src.twisted.web.test.test_http.RequestTests::test_getClientIPWithIPv6",
+    "src.twisted.web.test.test_http.RequestTests::test_getClientIPWithNonTCPPeer",
+    "src.twisted.web.test.test_http.RequestTests::test_getHeader",
+    "src.twisted.web.test.test_http.RequestTests::test_getHeaderNotFound",
+    "src.twisted.web.test.test_http.RequestTests::test_getHeaderReceivedMultiples",
+    "src.twisted.web.test.test_http.RequestTests::test_getRequestHostname",
+    "src.twisted.web.test.test_http.RequestTests::test_hashable",
+    "src.twisted.web.test.test_http.RequestTests::test_lastModifiedAlreadyWritten",
+    "src.twisted.web.test.test_http.RequestTests::test_ne",
+    "src.twisted.web.test.test_http.RequestTests::test_neWithNonRequest",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookies",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesContinueAfterMalformedCookie",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesEmptyCookie",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesEmptyValue",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesIgnoreValueless",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesMultipleHeaders",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesNoCookie",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesRetainRightSpace",
+    "src.twisted.web.test.test_http.RequestTests::test_parseCookiesStripLeftSpace",
+    "src.twisted.web.test.test_http.RequestTests::test_provides_IDeprecatedHTTPChannelToRequestInterface",
+    "src.twisted.web.test.test_http.RequestTests::test_receivedCookiesDefault",
+    "src.twisted.web.test.test_http.RequestTests::test_registerProducerTwiceFails",
+    "src.twisted.web.test.test_http.RequestTests::test_registerProducerWhenNotQueuedRegistersPullProducer",
+    "src.twisted.web.test.test_http.RequestTests::test_registerProducerWhenNotQueuedRegistersPushProducer",
+    "src.twisted.web.test.test_http.RequestTests::test_reprInitialized",
+    "src.twisted.web.test.test_http.RequestTests::test_reprSubclass",
+    "src.twisted.web.test.test_http.RequestTests::test_reprUninitialized",
+    "src.twisted.web.test.test_http.RequestTests::test_requestBodyTimeoutFromFactory",
+    "src.twisted.web.test.test_http.RequestTests::test_setHeader",
+    "src.twisted.web.test.test_http.RequestTests::test_setHost",
+    "src.twisted.web.test.test_http.RequestTests::test_setHostNonDefaultPort",
+    "src.twisted.web.test.test_http.RequestTests::test_setHostSSL",
+    "src.twisted.web.test.test_http.RequestTests::test_setHostSSLNonDefaultPort",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedCached",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedIgnore",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedNeverSet",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedNotCached",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedTwiceCached",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedTwiceNotCached",
+    "src.twisted.web.test.test_http.RequestTests::test_setLastModifiedUpdate",
+    "src.twisted.web.test.test_http.RequestTests::test_setResponseCode",
+    "src.twisted.web.test.test_http.RequestTests::test_setResponseCodeAcceptsIntegers",
+    "src.twisted.web.test.test_http.RequestTests::test_setResponseCodeAcceptsLongIntegers",
+    "src.twisted.web.test.test_http.RequestTests::test_setResponseCodeAndMessage",
+    "src.twisted.web.test.test_http.RequestTests::test_setResponseCodeAndMessageNotBytes",
+    "src.twisted.web.test.test_http.RequestTests::test_unregisterNonQueuedNonStreamingProducer",
+    "src.twisted.web.test.test_http.RequestTests::test_unregisterNonQueuedStreamingProducer",
+    "src.twisted.web.test.test_http.RequestTests::test_writeAfterConnectionLost",
+    "src.twisted.web.test.test_http.RequestTests::test_writeAfterFinish",
+    "src.twisted.web.test.test_http.SecurityTests::test_isSecure",
+    "src.twisted.web.test.test_http.SecurityTests::test_notSecure",
+    "src.twisted.web.test.test_http.SecurityTests::test_notSecureAfterFinish",
+    "src.twisted.web.test.test_http.ShutdownTests::test_losingConnection"
+  ],
+  "test_files": [
+    "src/twisted/web/test/test_http.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 212,
+  "n_after_pass": 223,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-c2jg-hw38-jrqq",
+      "summary": "Inconsistent Interpretation of HTTP Requests in twisted.web",
+      "details": "The Twisted Web HTTP 1.1 server, located in the `twisted.web.http` module, parsed several HTTP request constructs more leniently than permitted by RFC 7230:\n\n1. The Content-Length header value could have a `+` or `-` prefix.\n2. Illegal characters were permitted in chunked extensions, such as the LF (`\\n`) character.\n3. Chunk lengths, which are expressed in hexadecimal format, could have a prefix of `0x`.\n4. HTTP headers were stripped of all leading and trailing ASCII whitespace, rather than only space and HTAB (`\\t`).\n\nThis non-conformant parsing can lead to desync if requests pass through multiple HTTP parsers, potentially resulting in HTTP request smuggling.\n\n### Impact\n\nYou may be affected if:\n\n1. You use Twisted Web's HTTP 1.1 server and/or proxy\n2. You also pass requests through a different HTTP server and/or proxy\n\nThe specifics of the other HTTP parser matter. The original report notes that some versions of Apache Traffic Server and HAProxy have been vulnerable in the past. HTTP request smuggling may be a serious concern if you use a proxy to perform request validation or access control.\n\nThe Twisted Web client is not affected. The HTTP 2.0 server uses a different parser, so it is not affected.\n\n### Patches\n\nThe issue has been addressed in Twisted 22.4.0rc1 and later.\n\n### Workarounds\n\nOther than upgrading Twisted, you could:\n\n* Ensure any vulnerabilities in upstream proxies have been addressed, such as by upgrading them\n* Filter malformed requests by other means, such as configuration of an upstream proxy\n\n### Credits\n\nThis issue was initially reported by [Zhang Zeyu](https://github.com/zeyu2001).",
+      "aliases": [
+        "CVE-2022-24801",
+        "PYSEC-2022-195"
+      ],
+      "published": "2022-04-04T21:29:41Z",
+      "modified": "2024-11-25T19:05:34.591452Z",
+      "severity": "CRITICAL",
+      "cwe_ids": [
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "package": "twisted",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "22.4.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/security/advisories/GHSA-c2jg-hw38-jrqq"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-24801"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/commit/592217e951363d60e9cd99c5bbfd23d4615043ac"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/twisted/PYSEC-2022-195.yaml"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/twisted/twisted"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/releases/tag/twisted-22.4.0rc1"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2022/05/msg00003.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/7U6KYDTOLPICAVSR34G2WRYLFBD2YW5K"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/GLKHA6WREIVAMBQD7KKWYHPHGGNKMAG6"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7U6KYDTOLPICAVSR34G2WRYLFBD2YW5K"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/GLKHA6WREIVAMBQD7KKWYHPHGGNKMAG6"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.oracle.com/security-alerts/cpujul2022.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-c2jg-hw38-jrqq",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2022-195",
+          "summary": "",
+          "details": "Twisted is an event-based framework for internet applications, supporting Python 3.6+. Prior to version 22.4.0rc1, the Twisted Web HTTP 1.1 server, located in the `twisted.web.http` module, parsed several HTTP request constructs more leniently than permitted by RFC 7230. This non-conformant parsing can lead to desync if requests pass through multiple HTTP parsers, potentially resulting in HTTP request smuggling. Users who may be affected use Twisted Web's HTTP 1.1 server and/or proxy and also pass requests through a different HTTP server and/or proxy. The Twisted Web client is not affected. The HTTP 2.0 server uses a different parser, so it is not affected. The issue has been addressed in Twisted 22.4.0rc1. Two workarounds are available: Ensure any vulnerabilities in upstream proxies have been addressed, such as by upgrading them; or filter malformed requests by other means, such as configuration of an upstream proxy.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2022-195"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "592217e951363d60e9cd99c5bbfd23d4615043ac",
+      "authored_at": "2022-04-04T10:30:28+01:00",
+      "committed_at": "2022-04-04T10:30:28+01:00",
+      "message": "Merge pull request from GHSA-c2jg-hw38-jrqq\n\n10323: Inconsistent Interpretation of HTTP Requests ('HTTP Request Smuggling') in twisted.web",
+      "url": "https://github.com/twisted/twisted/commit/592217e951363d60e9cd99c5bbfd23d4615043ac"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:52:03+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

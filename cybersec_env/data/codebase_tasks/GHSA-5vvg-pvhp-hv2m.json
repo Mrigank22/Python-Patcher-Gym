@@ -1,0 +1,143 @@
+{
+  "id": "GHSA-5vvg-pvhp-hv2m",
+  "aliases": [
+    "CVE-2024-49750",
+    "PYSEC-2024-191"
+  ],
+  "cwes": [
+    "CWE-532"
+  ],
+  "severity": "MODERATE",
+  "package": "snowflake-connector-python",
+  "repo": {
+    "owner": "snowflakedb",
+    "name": "snowflake-connector-python",
+    "url": "https://github.com/snowflakedb/snowflake-connector-python"
+  },
+  "base_commit": "7ddbf3175f05e0ec1410487938d6eed2f73539a8",
+  "fix_commit": "dbc9284a3c0382c131b971b35e8d6ab93c46f37a",
+  "python_requires": "",
+  "changed_source_files": [
+    "src/snowflake/connector/auth/_auth.py",
+    "src/snowflake/connector/secret_detector.py"
+  ],
+  "changed_test_files": [
+    "test/unit/test_log_secret_detector.py"
+  ],
+  "source_patch": "diff --git a/src/snowflake/connector/auth/_auth.py b/src/snowflake/connector/auth/_auth.py\nindex b8aa8f4..e0cc714 100644\n--- a/src/snowflake/connector/auth/_auth.py\n+++ b/src/snowflake/connector/auth/_auth.py\n@@ -112,6 +112,18 @@ KEYRING_DRIVER_NAME = \"SNOWFLAKE-PYTHON-DRIVER\"\n ID_TOKEN = \"ID_TOKEN\"\n MFA_TOKEN = \"MFATOKEN\"\n \n+AUTHENTICATION_REQUEST_KEY_WHITELIST = {\n+    \"ACCOUNT_NAME\",\n+    \"AUTHENTICATOR\",\n+    \"CLIENT_APP_ID\",\n+    \"CLIENT_APP_VERSION\",\n+    \"CLIENT_ENVIRONMENT\",\n+    \"EXT_AUTHN_DUO_METHOD\",\n+    \"LOGIN_NAME\",\n+    \"SESSION_PARAMETERS\",\n+    \"SVN_REVISION\",\n+}\n+\n \n class Auth:\n     \"\"\"Snowflake Authenticator.\"\"\"\n@@ -205,7 +217,6 @@ class Auth:\n \n         body = copy.deepcopy(body_template)\n         # updating request body\n-        logger.debug(\"assertion content: %s\", auth_instance.assertion_content)\n         auth_instance.update_body(body)\n \n         logger.debug(\n@@ -243,7 +254,10 @@ class Auth:\n \n         logger.debug(\n             \"body['data']: %s\",\n-            {k: v for (k, v) in body[\"data\"].items() if k != \"PASSWORD\"},\n+            {\n+                k: v if k in AUTHENTICATION_REQUEST_KEY_WHITELIST else \"******\"\n+                for (k, v) in body[\"data\"].items()\n+            },\n         )\n \n         try:\ndiff --git a/src/snowflake/connector/secret_detector.py b/src/snowflake/connector/secret_detector.py\nindex 6633cda..a9e3d81 100644\n--- a/src/snowflake/connector/secret_detector.py\n+++ b/src/snowflake/connector/secret_detector.py\n@@ -33,14 +33,14 @@ class SecretDetector(logging.Formatter):\n         flags=re.IGNORECASE,\n     )\n     PRIVATE_KEY_PATTERN = re.compile(\n-        r\"-----BEGIN PRIVATE KEY-----\\\\n([a-z0-9/+=\\\\n]{32,})\\\\n-----END PRIVATE KEY-----\",\n+        r\"-{3,}BEGIN [A-Z ]*PRIVATE KEY-{3,}\\n([\\s\\S]*?)\\n-{3,}END [A-Z ]*PRIVATE KEY-{3,}\",\n         flags=re.MULTILINE | re.IGNORECASE,\n     )\n     PRIVATE_KEY_DATA_PATTERN = re.compile(\n         r'\"privateKeyData\": \"([a-z0-9/+=\\\\n]{10,})\"', flags=re.MULTILINE | re.IGNORECASE\n     )\n     CONNECTION_TOKEN_PATTERN = re.compile(\n-        r\"(token|assertion content)\" r\"([\\'\\\"\\s:=]+)\" r\"([a-z0-9=/_\\-\\+]{8,})\",\n+        r\"(token|assertion content)\" r\"([\\'\\\"\\s:=]+)\" r\"([a-z0-9=/_\\-\\+\\.]{8,})\",\n         flags=re.IGNORECASE,\n     )\n \n",
+  "test_patch": "diff --git a/test/unit/test_log_secret_detector.py b/test/unit/test_log_secret_detector.py\nindex 58de630..a6e62cb 100644\n--- a/test/unit/test_log_secret_detector.py\n+++ b/test/unit/test_log_secret_detector.py\n@@ -92,6 +92,31 @@ def test_mask_token():\n         \"XdJYuI8vhg=f0bKSq7AhQ2Bh\"\n     )\n \n+    rsa_key = (\n+        \"-----BEGIN RSA PRIVATE KEY-----\\n\"\n+        \"MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEA0pCa0rw1n4GBjylx\\n\"\n+        \"sBJPVCrsKO7SowkgJ52Lc8K3hMHNKXvYiqwgizbXFBQA27kvpEVSeRQVC3FAPRU5\\n\"\n+        \"gjtLRwIDAQABAkBHZbz5o9PS6AjUUEs6VpsLgRpersxBeACtLiBw+h9cJfUerR//\\n\"\n+        \"tTmNsQ9LlamMu2lOlfbO3R2J45ybF7z94A+hAiEA8piucvAlo9YJ4VViQGRTVvr+\\n\"\n+        \"xZKekSEYRJBn2czeP+kCIQDeMt1PVk/p0NEcNvQMbO0vJ3+U+lITJRwmtJ9Fs1Lj\\n\"\n+        \"rwIgJeTdkwyaBI6BepY4w7AoKHUKaNgvNqJBxSv9XNMYgEkCIG2rl1YgWOMkAQI3\\n\"\n+        \"EW/Ml6jtiugiQT5X07Q69F33q5LbAiEArZM7htafpt0RVia+nC9aY+73wpW0Be9e\\n\"\n+        \"pDz0yVv8s/Q=\\n\"\n+        \"-----END RSA PRIVATE KEY-----\\n\"\n+    )\n+\n+    json_token = (\n+        \"{'TOKEN': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFt\"\n+        \"ZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'}\"\n+    )\n+\n+    masked, masked_str, err_str = SecretDetector.mask_secrets(rsa_key)\n+    assert masked\n+    assert err_str is None\n+    assert (\n+        masked_str == \"-----BEGIN PRIVATE KEY-----\\\\nXXXX\\\\n-----END PRIVATE KEY-----\\n\"\n+    )\n+\n     token_str_w_prefix = \"Token =\" + long_token\n     masked, masked_str, err_str = SecretDetector.mask_secrets(token_str_w_prefix)\n     assert masked\n@@ -122,6 +147,11 @@ def test_mask_token():\n     assert err_str is None\n     assert masked_str == \"assertion content:****\"\n \n+    masked, masked_str, err_str = SecretDetector.mask_secrets(json_token)\n+    assert masked\n+    assert err_str is None\n+    assert masked_str == \"{'TOKEN': '****'}\"\n+\n \n def test_token_false_positives():\n     false_positive_token_str = (\n",
+  "summary": "The Snowflake Connector for Python stores sensitive data in logs",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `snowflake-connector-python` has a security vulnerability (CWE-532). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "test.unit.test_log_secret_detector::test_mask_token"
+  ],
+  "p2p_tests": [
+    "test.unit.test_log_secret_detector::test_empty_string",
+    "test.unit.test_log_secret_detector::test_exception_in_masking",
+    "test.unit.test_log_secret_detector::test_exception_in_secret_detector_while_log_masking",
+    "test.unit.test_log_secret_detector::test_exception_while_log_masking",
+    "test.unit.test_log_secret_detector::test_no_masking",
+    "test.unit.test_log_secret_detector::test_none_string",
+    "test.unit.test_log_secret_detector::test_password",
+    "test.unit.test_log_secret_detector::test_token_false_positives",
+    "test.unit.test_log_secret_detector::test_token_password"
+  ],
+  "test_files": [
+    "test/unit/test_log_secret_detector.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 9,
+  "n_after_pass": 10,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-5vvg-pvhp-hv2m",
+      "summary": "The Snowflake Connector for Python stores sensitive data in logs",
+      "details": "### Issue\nSnowflake recently learned about and remediated a set of vulnerabilities in the Snowflake Connector for Python. Under specific conditions, certain users credentials (or portions of those credentials) were logged locally by the Connector to the users own systems. The credentials were not logged by Snowflake.\n\nThese vulnerabilities affect versions up to and including 3.12.2. Snowflake fixed the issue in version 3.12.3.\n\n### Vulnerability Details\nWhen the logging level was set by the user to DEBUG, the Connector could have logged Duo passcodes (when specified via the “passcode” parameter) and Azure SAS tokens. Additionally, the [SecretDetector](https://docs.snowflake.com/en/developer-guide/python-connector/python-connector-example#logging) logging formatter, if enabled, contained bugs which caused it to not fully redact JWT tokens and certain private key formats.\n\n### Solution\nSnowflake released version 3.12.3 of the Snowflake Connector for Python, which fixes these issues. We recommend users upgrade to version 3.12.3 and review their logs for any potentially sensitive information that may have been captured.\n\n### Additional Information\nIf you discover a security vulnerability in one of our products or websites, please report the issue to HackerOne. For more information, please see our [Vulnerability Disclosure Policy](https://hackerone.com/snowflake?type=team).",
+      "aliases": [
+        "CVE-2024-49750",
+        "PYSEC-2024-191"
+      ],
+      "published": "2024-10-24T22:42:26Z",
+      "modified": "2026-09-10T03:50:19.275236393Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-532"
+      ],
+      "affected": [
+        {
+          "package": "snowflake-connector-python",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "3.12.3"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/snowflakedb/snowflake-connector-python/security/advisories/GHSA-5vvg-pvhp-hv2m"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-49750"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/snowflakedb/snowflake-connector-python/commit/dbc9284a3c0382c131b971b35e8d6ab93c46f37a"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/snowflake-connector-python/PYSEC-2024-191.yaml"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/snowflakedb/snowflake-connector-python"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-5vvg-pvhp-hv2m",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2024-191",
+          "summary": "",
+          "details": "The Snowflake Connector for Python provides an interface for developing Python applications that can connect to Snowflake and perform all standard operations. Prior to version 3.12.3, when the logging level was set by the user to DEBUG, the Connector could have logged Duo passcodes (when specified via the `passcode` parameter) and Azure SAS tokens. Additionally, the SecretDetector logging formatter, if enabled, contained bugs which caused it to not fully redact JWT tokens and certain private key formats. Snowflake released version 3.12.3 of the Snowflake Connector for Python, which fixes the issue. In addition to upgrading, users should review their logs for any potentially sensitive information that may have been captured.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2024-191"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "dbc9284a3c0382c131b971b35e8d6ab93c46f37a",
+      "authored_at": "2024-10-22T13:01:24-07:00",
+      "committed_at": "2024-10-22T13:01:24-07:00",
+      "message": "SNOW-1657037: Remove secrets from debug logs. (#2058)",
+      "url": "https://github.com/snowflakedb/snowflake-connector-python/commit/dbc9284a3c0382c131b971b35e8d6ab93c46f37a"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 2058,
+        "url": "https://github.com/snowflakedb/snowflake-connector-python/pull/2058",
+        "title": "SNOW-1657037: Remove secrets from debug logs.",
+        "body": "Please answer these questions before submitting your pull requests. Thanks!\r\n\r\n1. What GitHub issue is this PR addressing? Make sure that there is an accompanying issue to your PR.\r\n\r\n   Fixes SNOW-1657037 SNOW-1642759\r\n\r\n2. Fill out the following pre-review checklist:\r\n\r\n   - [ ] I am adding a new automated test(s) to verify correctness of my new code\r\n   - [ ] I am adding new logging messages\r\n   - [ ] I am adding a new telemetry message\r\n   - [ ] I am modifying authorization mechanisms\r\n   - [ ] I am adding new credentials\r\n   - [ ] I am modifying OCSP code\r\n   - [ ] I am adding a new dependency\r\n\r\n3. Please describe how your code solves the related issue.\r\nThis change removes a log line that would leak secrets as well as changes another from a blacklist approach to a whitelist approach.\r\n       \r\n\r\n4. (Optional) PR for stored-proc connector:\r\nStored proc does not share the auth submodule.\r\n",
+        "merged_at": "2024-10-22T20:01:25Z",
+        "merge_commit_sha": "dbc9284a3c0382c131b971b35e8d6ab93c46f37a"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:38:52+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

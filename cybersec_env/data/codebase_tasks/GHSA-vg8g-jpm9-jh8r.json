@@ -1,0 +1,190 @@
+{
+  "id": "GHSA-vg8g-jpm9-jh8r",
+  "aliases": [
+    "CVE-2017-16616",
+    "PYSEC-2017-23"
+  ],
+  "cwes": [
+    "CWE-502"
+  ],
+  "severity": "CRITICAL",
+  "package": "pyanyapi",
+  "repo": {
+    "owner": "Stranger6667",
+    "name": "pyanyapi",
+    "url": "https://github.com/Stranger6667/pyanyapi"
+  },
+  "base_commit": "aebee636ad26f387850a6c8ab820ce4aac3f9adb",
+  "fix_commit": "810db626c18ebc261d5f4299d0f0eac38d5eb3cf",
+  "python_requires": "",
+  "changed_source_files": [
+    "pyanyapi/interfaces.py"
+  ],
+  "changed_test_files": [
+    "tests/test_parsers.py"
+  ],
+  "source_patch": "diff --git a/pyanyapi/interfaces.py b/pyanyapi/interfaces.py\nindex 698c637..c0914b2 100644\n--- a/pyanyapi/interfaces.py\n+++ b/pyanyapi/interfaces.py\n@@ -274,7 +274,7 @@ class YAMLInterface(DictInterface):\n \n     def perform_parsing(self):\n         try:\n-            return yaml.load(self.content)\n+            return yaml.safe_load(self.content)\n         except yaml.error.YAMLError:\n             raise ResponseParseError(self._error_message, self.content)\n \n",
+  "test_patch": "diff --git a/tests/test_parsers.py b/tests/test_parsers.py\nindex 38223e2..4958b21 100644\n--- a/tests/test_parsers.py\n+++ b/tests/test_parsers.py\n@@ -63,6 +63,15 @@ def test_yaml_parser_error():\n         parsed.test\n \n \n+def test_yaml_parser_vulnerability():\n+    \"\"\"\n+    In case of usage of yaml.load `test` value will be equal to 0.\n+    \"\"\"\n+    parsed = YAMLParser({'test': 'container > test'}).parse('!!python/object/apply:os.system [\"exit 0\"]')\n+    with pytest.raises(ResponseParseError):\n+        parsed.test\n+\n+\n @lxml_is_supported\n @pytest.mark.parametrize(\n     'settings', (\n",
+  "summary": "Unsafe pyyaml load usage in PyAnyAPI",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `pyanyapi` has a security vulnerability (CWE-502). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_parsers::test_yaml_parse",
+    "tests.test_parsers::test_yaml_parser_error",
+    "tests.test_parsers::test_yaml_parser_vulnerability"
+  ],
+  "p2p_tests": [
+    "tests.test_parsers.TestIndexOfParser::test_default[foo-b\\xc3\\xa1r]",
+    "tests.test_parsers.TestIndexOfParser::test_default[foo-b\\xe1r]",
+    "tests.test_parsers.TestIndexOfParser::test_parsing_error[has_bar]",
+    "tests.test_parsers.TestIndexOfParser::test_parsing_error[has_baz]",
+    "tests.test_parsers::test_ajax_parser",
+    "tests.test_parsers::test_ajax_parser_cache",
+    "tests.test_parsers::test_attributes",
+    "tests.test_parsers::test_children[SubParser]",
+    "tests.test_parsers::test_children[sub_parser1]",
+    "tests.test_parsers::test_complex_config",
+    "tests.test_parsers::test_csv_parser_error",
+    "tests.test_parsers::test_efficient_parsing",
+    "tests.test_parsers::test_empty_values[{\"container\":[1,2]}-test-1,2]",
+    "tests.test_parsers::test_empty_values[{\"container\":[[1],[],[3]]}-third-expected3]",
+    "tests.test_parsers::test_empty_values[{\"container\":null}-null-None]",
+    "tests.test_parsers::test_empty_values[{\"container\":{\"fail\":[1]}}-second-None]",
+    "tests.test_parsers::test_empty_values[{\"container\":{\"test\":\"value\"}}-second-None]",
+    "tests.test_parsers::test_empty_values[{\"container\":{\"test\":\"value\"}}-test-value]",
+    "tests.test_parsers::test_json_parse",
+    "tests.test_parsers::test_json_parsed",
+    "tests.test_parsers::test_json_value_error_parse",
+    "tests.test_parsers::test_multiple_parser_join",
+    "tests.test_parsers::test_multiply_parsers_declaration",
+    "tests.test_parsers::test_parse_all",
+    "tests.test_parsers::test_parse_all_combined_parser",
+    "tests.test_parsers::test_parse_csv",
+    "tests.test_parsers::test_parse_csv_custom_delimiter",
+    "tests.test_parsers::test_parse_memoization",
+    "tests.test_parsers::test_regexp_parse",
+    "tests.test_parsers::test_regexp_settings",
+    "tests.test_parsers::test_settings_inheritance",
+    "tests.test_parsers::test_simple_config_json_parser",
+    "tests.test_parsers::test_simple_config_xml_parser",
+    "tests.test_parsers::test_xml_objectify_parser",
+    "tests.test_parsers::test_xml_objectify_parser_error",
+    "tests.test_parsers::test_xml_parsed[settings0]",
+    "tests.test_parsers::test_xml_parsed[settings1]",
+    "tests.test_parsers::test_xml_parser_error",
+    "tests.test_parsers::test_xml_simple_settings"
+  ],
+  "test_files": [
+    "tests/test_parsers.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 39,
+  "n_after_pass": 42,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-vg8g-jpm9-jh8r",
+      "summary": "Unsafe pyyaml load usage in PyAnyAPI",
+      "details": "An exploitable vulnerability exists in the YAML parsing functionality in the YAMLParser method in Interfaces.py in PyAnyAPI before 0.6.1. A YAML parser can execute arbitrary Python commands resulting in command execution because `load` is used where `safe_load` should have been used. An attacker can insert Python into loaded YAML to trigger this vulnerability.",
+      "aliases": [
+        "CVE-2017-16616",
+        "PYSEC-2017-23"
+      ],
+      "published": "2022-05-13T01:44:08Z",
+      "modified": "2024-10-21T21:01:58.950074Z",
+      "severity": "CRITICAL",
+      "cwe_ids": [
+        "CWE-502"
+      ],
+      "affected": [
+        {
+          "package": "pyanyapi",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.6.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2017-16616"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Stranger6667/pyanyapi/issues/41"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Stranger6667/pyanyapi/commit/810db626c18ebc261d5f4299d0f0eac38d5eb3cf"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/Stranger6667/pyanyapi"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Stranger6667/pyanyapi/releases/tag/0.6.1"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-vg8g-jpm9-jh8r"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/pyanyapi/PYSEC-2017-23.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://joel-malwarebenchmark.github.io/blog/2017/11/08/cve-2017-16616-yamlparser-in-pyanyapi"
+        },
+        {
+          "type": "WEB",
+          "url": "https://pypi.python.org/pypi/pyanyapi/0.6.1"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-vg8g-jpm9-jh8r",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2017-23",
+          "summary": "",
+          "details": "An exploitable vulnerability exists in the YAML parsing functionality in the YAMLParser method in Interfaces.py in PyAnyAPI before 0.6.1. A YAML parser can execute arbitrary Python commands resulting in command execution because load is used where safe_load should have been used. An attacker can insert Python into loaded YAML to trigger this vulnerability.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2017-23"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "810db626c18ebc261d5f4299d0f0eac38d5eb3cf",
+      "authored_at": "2017-11-07T11:24:18+01:00",
+      "committed_at": "2017-11-07T11:24:18+01:00",
+      "message": "Fix YAML load. Fixes #41 (#42)",
+      "url": "https://github.com/Stranger6667/pyanyapi/commit/810db626c18ebc261d5f4299d0f0eac38d5eb3cf"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 42,
+        "url": "https://github.com/Stranger6667/pyanyapi/pull/42",
+        "title": "Fix YAML load. Fixes #41",
+        "body": "",
+        "merged_at": "2017-11-07T10:24:19Z",
+        "merge_commit_sha": "810db626c18ebc261d5f4299d0f0eac38d5eb3cf"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T01:03:40+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

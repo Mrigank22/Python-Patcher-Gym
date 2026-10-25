@@ -1,0 +1,279 @@
+{
+  "id": "PYSEC-2024-188",
+  "aliases": [
+    "CVE-2024-42353",
+    "GHSA-mg3v-6m49-jhp3"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+  "package": "webob",
+  "repo": {
+    "owner": "Pylons",
+    "name": "webob",
+    "url": "https://github.com/Pylons/webob"
+  },
+  "base_commit": "7bf29f1f9a0e90e1fee3cc4110c1a37d942101f2",
+  "fix_commit": "f689bcf4f0a1f64f1735b1d5069aef5be6974b5b",
+  "python_requires": ">=2.7,!=3.0.*,!=3.1.*,!=3.2.*",
+  "changed_source_files": [
+    "src/webob/response.py"
+  ],
+  "changed_test_files": [
+    "tests/test_response.py"
+  ],
+  "source_patch": "diff --git a/src/webob/response.py b/src/webob/response.py\nindex 2aad591..efc38ec 100644\n--- a/src/webob/response.py\n+++ b/src/webob/response.py\n@@ -1284,6 +1284,11 @@ class Response(object):\n         if SCHEME_RE.search(value):\n             return value\n \n+        # This is to fix an open redirect issue due to the way that\n+        # urlparse.urljoin works. See CVE-2024-42353 and\n+        # https://github.com/Pylons/webob/security/advisories/GHSA-mg3v-6m49-jhp3\n+        if value.startswith(\"//\"):\n+            value = \"/%2f{}\".format(value[2:])\n         new_location = urlparse.urljoin(_request_uri(environ), value)\n         return new_location\n \n",
+  "test_patch": "diff --git a/tests/test_response.py b/tests/test_response.py\nindex 9d9f9d3..8a6ac06 100644\n--- a/tests/test_response.py\n+++ b/tests/test_response.py\n@@ -1031,6 +1031,17 @@ def test_location():\n     assert req.get_response(res).location == 'http://localhost/test2.html'\n \n \n+def test_location_no_open_redirect():\n+    # This is a test for a fix for CVE-2024-42353 and\n+    # https://github.com/Pylons/webob/security/advisories/GHSA-mg3v-6m49-jhp3\n+    res = Response()\n+    res.status = \"301\"\n+    res.location = \"//www.example.com/test\"\n+    assert res.location == \"//www.example.com/test\"\n+    req = Request.blank(\"/\")\n+    assert req.get_response(res).location == \"http://localhost/%2fwww.example.com/test\"\n+\n+\n @pytest.mark.xfail(sys.version_info < (3,0),\n                    reason=\"Python 2.x unicode != str, WSGI requires str. Test \"\n                    \"added due to https://github.com/Pylons/webob/issues/247. \"\n",
+  "summary": "",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `webob` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_response::test_location_no_open_redirect"
+  ],
+  "p2p_tests": [
+    "tests.test_response::test_204_app_iter_set",
+    "tests.test_response::test_204_has_no_body",
+    "tests.test_response::test_HEAD_closes",
+    "tests.test_response::test_HEAD_conditional_response_range_empty_response",
+    "tests.test_response::test_HEAD_conditional_response_range_not_satisfiable_response",
+    "tests.test_response::test_HEAD_conditional_response_returns_empty_response",
+    "tests.test_response::test__make_location_absolute_already_absolute",
+    "tests.test_response::test__make_location_absolute_has_scheme_only",
+    "tests.test_response::test__make_location_absolute_path",
+    "tests.test_response::test_app_iter_del",
+    "tests.test_response::test_app_iter_is_same",
+    "tests.test_response::test_app_iter_range",
+    "tests.test_response::test_app_iter_range_inner_method",
+    "tests.test_response::test_app_iter_range_starts_after_iter_end",
+    "tests.test_response::test_body_del",
+    "tests.test_response::test_body_file_del",
+    "tests.test_response::test_body_file_get",
+    "tests.test_response::test_body_file_write_no_charset",
+    "tests.test_response::test_body_file_write_unicode_encodes",
+    "tests.test_response::test_body_get_body_is_None_len_app_iter_is_zero",
+    "tests.test_response::test_body_get_is_none",
+    "tests.test_response::test_body_get_is_unicode",
+    "tests.test_response::test_body_get_is_unicode_notverylong",
+    "tests.test_response::test_body_set_not_unicode_or_str",
+    "tests.test_response::test_body_set_under_body_doesnt_exist",
+    "tests.test_response::test_body_set_unicode",
+    "tests.test_response::test_cache_control_del",
+    "tests.test_response::test_cache_control_get",
+    "tests.test_response::test_cache_control_object_max_age_ten",
+    "tests.test_response::test_cache_control_set_None",
+    "tests.test_response::test_cache_control_set_control_obj_is_not_None",
+    "tests.test_response::test_cache_control_set_dict",
+    "tests.test_response::test_cache_control_set_object_error",
+    "tests.test_response::test_cache_control_set_unicode",
+    "tests.test_response::test_cache_expires_set",
+    "tests.test_response::test_cache_expires_set_None",
+    "tests.test_response::test_cache_expires_set_int",
+    "tests.test_response::test_cache_expires_set_timedelta",
+    "tests.test_response::test_cache_expires_set_zero",
+    "tests.test_response::test_cache_expires_set_zero_then_nonzero",
+    "tests.test_response::test_charset_del_no_content_type_header",
+    "tests.test_response::test_charset_delete",
+    "tests.test_response::test_charset_set_no_content_type_header",
+    "tests.test_response::test_conditional_response_if_modified_since_false",
+    "tests.test_response::test_conditional_response_if_modified_since_true",
+    "tests.test_response::test_conditional_response_if_none_match_false",
+    "tests.test_response::test_conditional_response_if_none_match_true",
+    "tests.test_response::test_conditional_response_if_none_match_weak",
+    "tests.test_response::test_conditional_response_range_not_satisfiable_response",
+    "tests.test_response::test_content_length",
+    "tests.test_response::test_content_type",
+    "tests.test_response::test_content_type_has_charset",
+    "tests.test_response::test_content_type_not_binary",
+    "tests.test_response::test_content_type_params_get_no_semicolon_in_content_type_header",
+    "tests.test_response::test_content_type_params_get_semicolon_in_content_type_header",
+    "tests.test_response::test_content_type_params_set_ok_param_quoting",
+    "tests.test_response::test_content_type_params_set_value_dict_empty",
+    "tests.test_response::test_content_type_supports_unicode",
+    "tests.test_response::test_cookies",
+    "tests.test_response::test_cookies_raises_typeerror",
+    "tests.test_response::test_decode_content_defaults_to_identity",
+    "tests.test_response::test_decode_content_gzip",
+    "tests.test_response::test_decode_content_identity",
+    "tests.test_response::test_decode_content_weird",
+    "tests.test_response::test_decode_content_with_deflate",
+    "tests.test_response::test_decode_content_with_deflate_and_zlib_header",
+    "tests.test_response::test_default_charset",
+    "tests.test_response::test_default_content_type",
+    "tests.test_response::test_delete_cookie",
+    "tests.test_response::test_delete_cookie_with_domain",
+    "tests.test_response::test_delete_cookie_with_path",
+    "tests.test_response::test_doesnt_raise_with_charset_content_type_has_no_charset",
+    "tests.test_response::test_encode_content_gzip_already_gzipped",
+    "tests.test_response::test_encode_content_gzip_buffer_coverage",
+    "tests.test_response::test_encode_content_gzip_notyet_gzipped",
+    "tests.test_response::test_encode_content_gzip_notyet_gzipped_lazy",
+    "tests.test_response::test_encode_content_identity",
+    "tests.test_response::test_encode_content_unknown",
+    "tests.test_response::test_explicit_charset",
+    "tests.test_response::test_file_bad_header",
+    "tests.test_response::test_file_with_http_version",
+    "tests.test_response::test_file_with_http_version_more_status",
+    "tests.test_response::test_from_file",
+    "tests.test_response::test_from_file2",
+    "tests.test_response::test_from_file_not_unicode_headers",
+    "tests.test_response::test_from_file_w_leading_space_in_header",
+    "tests.test_response::test_from_text_file",
+    "tests.test_response::test_has_body",
+    "tests.test_response::test_header_list_no_defaults",
+    "tests.test_response::test_headers",
+    "tests.test_response::test_http_only_cookie",
+    "tests.test_response::test_init_adds_default_charset_when_not_json",
+    "tests.test_response::test_init_content_type_w_charset",
+    "tests.test_response::test_init_doesnt_add_default_content_type_with_bodyless_status",
+    "tests.test_response::test_init_keeps_specified_charset_when_json",
+    "tests.test_response::test_init_no_charset_when_json",
+    "tests.test_response::test_location",
+    "tests.test_response::test_location_unicode",
+    "tests.test_response::test_md5_etag",
+    "tests.test_response::test_md5_etag_set_content_md5",
+    "tests.test_response::test_merge_cookies_no_set_cookie",
+    "tests.test_response::test_merge_cookies_resp_is_Response",
+    "tests.test_response::test_merge_cookies_resp_is_wsgi_callable",
+    "tests.test_response::test_raises_no_charset",
+    "tests.test_response::test_raises_none_charset",
+    "tests.test_response::test_repr",
+    "tests.test_response::test_request_uri_http",
+    "tests.test_response::test_request_uri_https",
+    "tests.test_response::test_request_uri_no_script_name",
+    "tests.test_response::test_request_uri_no_script_name2",
+    "tests.test_response::test_resp_write_app_iter_non_list",
+    "tests.test_response::test_response",
+    "tests.test_response::test_response_copy",
+    "tests.test_response::test_response_copy_content_md5",
+    "tests.test_response::test_response_file_body_close_not_implemented",
+    "tests.test_response::test_response_file_body_repr",
+    "tests.test_response::test_response_file_body_tell_text",
+    "tests.test_response::test_response_file_body_write_empty_app_iter",
+    "tests.test_response::test_response_file_body_write_empty_body",
+    "tests.test_response::test_response_file_body_writelines",
+    "tests.test_response::test_response_json_body",
+    "tests.test_response::test_response_set_body_file1",
+    "tests.test_response::test_response_set_body_file2",
+    "tests.test_response::test_response_write_non_str",
+    "tests.test_response::test_set_content_type",
+    "tests.test_response::test_set_cookie_expires_is_None_and_max_age_is_int",
+    "tests.test_response::test_set_cookie_expires_is_None_and_max_age_is_timedelta",
+    "tests.test_response::test_set_cookie_expires_is_datetime_and_max_age_is_None",
+    "tests.test_response::test_set_cookie_expires_is_datetime_tz_and_max_age_is_None",
+    "tests.test_response::test_set_cookie_expires_is_timedelta_and_max_age_is_None",
+    "tests.test_response::test_set_cookie_overwrite",
+    "tests.test_response::test_set_cookie_value_is_None",
+    "tests.test_response::test_set_headerlist",
+    "tests.test_response::test_set_response_status_bad",
+    "tests.test_response::test_set_response_status_binary",
+    "tests.test_response::test_set_response_status_code",
+    "tests.test_response::test_set_response_status_code_generic_reason",
+    "tests.test_response::test_set_response_status_str_generic_reason",
+    "tests.test_response::test_set_response_status_str_no_reason",
+    "tests.test_response::test_set_status",
+    "tests.test_response::test_status_code_set",
+    "tests.test_response::test_str_crlf",
+    "tests.test_response::test_text_del",
+    "tests.test_response::test_text_get_decode",
+    "tests.test_response::test_text_get_no_charset",
+    "tests.test_response::test_text_get_no_default_body_encoding",
+    "tests.test_response::test_text_set_no_charset",
+    "tests.test_response::test_text_set_no_default_body_encoding",
+    "tests.test_response::test_text_set_not_unicode",
+    "tests.test_response::test_unicode_body",
+    "tests.test_response::test_unicode_cookies_error_raised",
+    "tests.test_response::test_unicode_cookies_warning_issued",
+    "tests.test_response::test_unset_cookie_key_in_cookies",
+    "tests.test_response::test_unset_cookie_not_existing_and_not_strict",
+    "tests.test_response::test_unset_cookie_not_existing_and_strict",
+    "tests.test_response::test_write_text",
+    "tests.test_response::test_write_unicode",
+    "tests.test_response::test_write_unicode_no_charset"
+  ],
+  "test_files": [
+    "tests/test_response.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 158,
+  "n_after_pass": 159,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2024-188",
+      "summary": "",
+      "details": "WebOb provides objects for HTTP requests and responses. When WebOb normalizes the HTTP Location header to include the request hostname, it does so by parsing the URL that the user is to be redirected to with Python's urlparse, and joining it to the base URL. `urlparse` however treats a `//` at the start of a string as a URI without a scheme, and then treats the next part as the hostname. `urljoin` will then use that hostname from the second part as the hostname replacing the original one from the request. This vulnerability is patched in WebOb version 1.8.8.",
+      "aliases": [
+        "CVE-2024-42353",
+        "GHSA-mg3v-6m49-jhp3"
+      ],
+      "published": "2024-08-14T21:15:17Z",
+      "modified": "2025-01-19T04:56:55.038129Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "webob",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/pylons/webob",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "f689bcf4f0a1f64f1735b1d5069aef5be6974b5b"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.8.8"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "EVIDENCE",
+          "url": "https://github.com/Pylons/webob/security/advisories/GHSA-mg3v-6m49-jhp3"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/Pylons/webob/commit/f689bcf4f0a1f64f1735b1d5069aef5be6974b5b"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2024-188",
+      "related_advisories": [
+        {
+          "id": "GHSA-mg3v-6m49-jhp3",
+          "summary": "WebOb's location header normalization during redirect leads to open redirect",
+          "details": "### Impact\n\nWhen WebOb normalizes the HTTP Location header to include the request hostname, it does so by parsing the URL that the user is to be redirected to with Python's urlparse, and joining it to the base URL. `urlparse` however treats a `//` at the start of a string as a URI without a scheme, and then treats the next part as the hostname. `urljoin` will then use that hostname from the second part as the hostname replacing the original one from the request.\n\n```\n>>> parse.urlparse(\"//example.com/test/path\")\nParseResult(scheme='', netloc='example.com', path='/test/path', params='', query='', fragment='')\n```\n\nWebOb uses `urljoin` to take the request URI and joining the redirect location, so assuming the request URI is: `https://example.org//example.com/some/path`, and the URL to redirect to (for example by adding a slash automatically) is `//example.com/some/path/` that gets turned by `urljoin` into:\n\n```\n>>> parse.urljoin(\"https://example.org//attacker.com/some/path\", \"//attacker.com/some/path/\")\n'https://attacker.com/some/path/'\n```\n\nWhich redirects from `example.org` where we want the user to stay to `attacker.com`\n\n\n### Patches\n\nThis issue is patched in WebOb 1.8.8\n\nOlder versions of WebOb continue to be vulnerable to this issue, and should be avoided.\n\n### Workarounds\n\nAny use of the `Response` class that includes a `location` can be rewritten to make sure to always pass a full URI that includes the hostname to redirect the user to.\n\n### Thanks\n\n- Sara Gao\n\nThis issue was reported via the [Pylons Project Security List](mailto:<email>)\n",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-mg3v-6m49-jhp3"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "f689bcf4f0a1f64f1735b1d5069aef5be6974b5b",
+      "authored_at": "2024-08-07T11:15:35-06:00",
+      "committed_at": "2024-08-13T22:17:32-06:00",
+      "message": "Add fix for open redirect",
+      "url": "https://github.com/Pylons/webob/commit/f689bcf4f0a1f64f1735b1d5069aef5be6974b5b"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:41:16+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

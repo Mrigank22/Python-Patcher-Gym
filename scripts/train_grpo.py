@@ -1,10 +1,11 @@
 """Model-agnostic GRPO training on the CyberSec secure-code-repair environment.
 
 Everything that depends on model/hardware lives in a YAML config, so the same
-command trains a 0.5B model on an 8 GB laptop GPU or a large model on a server::
+command trains a 0.5B or 1.5B model on an 8 GB laptop GPU, and a larger model
+given a config for it::
 
     python scripts/train_grpo.py --config configs/laptop_qwen05b.yaml
-    python scripts/train_grpo.py --config configs/server_a100.yaml --max-steps 1000
+    python scripts/train_grpo.py --config configs/hardened_coder15_mixed.yaml
 
 It builds the task dataset, evaluates the base model on a held-out split,
 trains with GRPO (reward = the environment grader), evaluates again, and writes

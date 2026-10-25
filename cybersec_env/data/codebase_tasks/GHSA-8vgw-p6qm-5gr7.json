@@ -1,0 +1,157 @@
+{
+  "id": "GHSA-8vgw-p6qm-5gr7",
+  "aliases": [
+    "CVE-2024-6844",
+    "PYSEC-2026-1385"
+  ],
+  "cwes": [
+    "CWE-346"
+  ],
+  "severity": "MODERATE",
+  "package": "flask-cors",
+  "repo": {
+    "owner": "corydolphin",
+    "name": "flask-cors",
+    "url": "https://github.com/corydolphin/flask-cors"
+  },
+  "base_commit": "e970988bea563e05e8b8f53fa7bcc134b5bf5c5f",
+  "fix_commit": "35d875319621bd129a38b2b823abf4a2f6cda536",
+  "python_requires": ">=3.9,<4.0",
+  "changed_source_files": [
+    "flask_cors/extension.py"
+  ],
+  "changed_test_files": [
+    "tests/extension/test_app_extension.py"
+  ],
+  "source_patch": "diff --git a/flask_cors/extension.py b/flask_cors/extension.py\nindex 4591557..434f65e 100644\n--- a/flask_cors/extension.py\n+++ b/flask_cors/extension.py\n@@ -1,5 +1,5 @@\n import logging\n-from urllib.parse import unquote_plus\n+from urllib.parse import unquote\n \n from flask import request\n \n@@ -188,7 +188,7 @@ def make_after_request_function(resources):\n         if resp.headers is not None and resp.headers.get(ACL_ORIGIN):\n             LOG.debug(\"CORS have been already evaluated, skipping\")\n             return resp\n-        normalized_path = unquote_plus(request.path)\n+        normalized_path = unquote(request.path)\n         for res_regex, res_options in resources:\n             if try_match_pattern(normalized_path, res_regex, caseSensitive=True):\n                 LOG.debug(\n",
+  "test_patch": "diff --git a/tests/extension/test_app_extension.py b/tests/extension/test_app_extension.py\nindex a4b2606..59432e6 100644\n--- a/tests/extension/test_app_extension.py\n+++ b/tests/extension/test_app_extension.py\n@@ -378,5 +378,61 @@ class AppExtensionBadRegexp(FlaskCorsTestCase):\n             self.assertEqual(resp.status_code, 200)\n \n \n+class AppExtensionPlusInPath(FlaskCorsTestCase):\n+    '''\n+        Regression test for CVE-2024-6844:\n+        Ensures that we correctly differentiate '+' from ' ' in URL paths.\n+    '''\n+\n+    def setUp(self):\n+        self.app = Flask(__name__)\n+        CORS(self.app, resources={\n+            r'/service\\+path': {'origins': ['http://foo.com']},\n+            r'/service path': {'origins': ['http://bar.com']},\n+        })\n+\n+        @self.app.route('/service+path')\n+        def plus_path():\n+            return 'plus'\n+\n+        @self.app.route('/service path')\n+        def space_path():\n+            return 'space'\n+\n+        self.client = self.app.test_client()\n+\n+    def test_plus_path_origin_allowed(self):\n+        '''\n+        Ensure that CORS matches + literally and allows the correct origin\n+        '''\n+        response = self.client.get('/service+path', headers={'Origin': 'http://foo.com'})\n+        self.assertEqual(response.status_code, 200)\n+        self.assertEqual(response.headers.get(ACL_ORIGIN), 'http://foo.com')\n+\n+    def test_space_path_origin_allowed(self):\n+        '''\n+        Ensure that CORS treats /service path differently and allows correct origin\n+        '''\n+        response = self.client.get('/service%20path', headers={'Origin': 'http://bar.com'})\n+        self.assertEqual(response.status_code, 200)\n+        self.assertEqual(response.headers.get(ACL_ORIGIN), 'http://bar.com')\n+\n+    def test_plus_path_rejects_other_origin(self):\n+        '''\n+        Origin not allowed for + path should be rejected\n+        '''\n+        response = self.client.get('/service+path', headers={'Origin': 'http://bar.com'})\n+        self.assertEqual(response.status_code, 200)\n+        self.assertIsNone(response.headers.get(ACL_ORIGIN))\n+\n+    def test_space_path_rejects_other_origin(self):\n+        '''\n+        Origin not allowed for space path should be rejected\n+        '''\n+        response = self.client.get('/service%20path', headers={'Origin': 'http://foo.com'})\n+        self.assertEqual(response.status_code, 200)\n+        self.assertIsNone(response.headers.get(ACL_ORIGIN))\n+\n+\n if __name__ == \"__main__\":\n     unittest.main()\n",
+  "summary": "Flask-CORS allows for inconsistent CORS matching",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `flask-cors` has a security vulnerability (CWE-346). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.extension.test_app_extension.AppExtensionPlusInPath::test_plus_path_origin_allowed",
+    "tests.extension.test_app_extension.AppExtensionPlusInPath::test_plus_path_rejects_other_origin"
+  ],
+  "p2p_tests": [
+    "tests.extension.test_app_extension.AppExtensionBadRegexp::test_value_error",
+    "tests.extension.test_app_extension.AppExtensionCompiledRegexp::test_compiled_regex",
+    "tests.extension.test_app_extension.AppExtensionDefault::test_default",
+    "tests.extension.test_app_extension.AppExtensionError::test_value_error",
+    "tests.extension.test_app_extension.AppExtensionExampleApp::test_exact_match",
+    "tests.extension.test_app_extension.AppExtensionExampleApp::test_index",
+    "tests.extension.test_app_extension.AppExtensionExampleApp::test_wildcard",
+    "tests.extension.test_app_extension.AppExtensionList::test_exposed",
+    "tests.extension.test_app_extension.AppExtensionList::test_other_exposed",
+    "tests.extension.test_app_extension.AppExtensionList::test_unexposed",
+    "tests.extension.test_app_extension.AppExtensionPlusInPath::test_space_path_origin_allowed",
+    "tests.extension.test_app_extension.AppExtensionPlusInPath::test_space_path_rejects_other_origin",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_compiled_subdomain_regex",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_defaults_no_origin",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_defaults_with_origin",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_list_serialized",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_not_matching_origins",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_regex_list",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_regex_mixed_list",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_send_wildcard_with_origin",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_set_serialized",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_string_serialized",
+    "tests.extension.test_app_extension.AppExtensionRegexp::test_subdomain_regex",
+    "tests.extension.test_app_extension.AppExtensionString::test_exposed",
+    "tests.extension.test_app_extension.AppExtensionString::test_override",
+    "tests.extension.test_app_extension.AppExtensionString::test_unexposed"
+  ],
+  "test_files": [
+    "tests/extension/test_app_extension.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 26,
+  "n_after_pass": 28,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-8vgw-p6qm-5gr7",
+      "summary": "Flask-CORS allows for inconsistent CORS matching",
+      "details": "A vulnerability in corydolphin/flask-cors version 5.0.1 allows for inconsistent CORS matching due to the handling of the '+' character in URL paths. The request.path is passed through the unquote_plus function, which converts the '+' character to a space ' '. This behavior leads to incorrect path normalization, causing potential mismatches in CORS configuration. As a result, endpoints may not be matched correctly to their CORS settings, leading to unexpected CORS policy application. This can cause unauthorized cross-origin access or block valid requests, creating security vulnerabilities and usability issues.",
+      "aliases": [
+        "CVE-2024-6844",
+        "PYSEC-2026-1385"
+      ],
+      "published": "2025-03-20T12:32:45Z",
+      "modified": "2026-09-10T03:50:23.027959228Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-346"
+      ],
+      "affected": [
+        {
+          "package": "flask-cors",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.0.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-6844"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/corydolphin/flask-cors/commit/35d875319621bd129a38b2b823abf4a2f6cda536"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/corydolphin/flask-cors"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/corydolphin/flask-cors/blob/main/flask_cors/extension.py#L193"
+        },
+        {
+          "type": "WEB",
+          "url": "https://huntr.com/bounties/731a6cd4-d05f-4fe6-8f5b-fe088d7b34e0"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/05/msg00049.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-8vgw-p6qm-5gr7",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "35d875319621bd129a38b2b823abf4a2f6cda536",
+      "authored_at": "2025-05-17T07:32:23-07:00",
+      "committed_at": "2025-05-17T07:32:23-07:00",
+      "message": "[CVE-2024-6844] Replace use of (urllib) unquote_plus with unquote for paths (#389)",
+      "url": "https://github.com/corydolphin/flask-cors/commit/35d875319621bd129a38b2b823abf4a2f6cda536"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 389,
+        "url": "https://github.com/corydolphin/flask-cors/pull/389",
+        "title": "[CVE-2024-6844] Replace use of (urllib) unquote_plus with unquote",
+        "body": "## [CVE-2024-6844] Replace use of (urllib) unquote_plus with unquote\r\n\r\nThe unquote_plus function was being used here to normalize the request path before applying pattern matching against defined CORS resources.\r\n\r\n**BUT** `unquote_plus()` decodes `+` signs into spaces, which is **NOT** appropriate for URL paths. The + character is not reserved in URL paths — it can be a valid part of the path.\r\n\r\nSo we want to use `unquote` instead of `unquote_plus` (which does not decode `+` into spaces.\r\n\r\n- Closes https://github.com/corydolphin/flask-cors/issues/385\r\n- Addresses 1/3 issues raised in https://github.com/corydolphin/flask-cors/issues/384",
+        "merged_at": "2025-05-17T14:32:23Z",
+        "merge_commit_sha": "35d875319621bd129a38b2b823abf4a2f6cda536"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T01:23:48+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

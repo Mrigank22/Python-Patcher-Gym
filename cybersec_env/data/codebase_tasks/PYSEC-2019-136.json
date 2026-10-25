@@ -307,5 +307,99 @@
   ],
   "python": "3.11",
   "n_before_pass": 262,
-  "n_after_pass": 259
+  "n_after_pass": 259,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2019-136",
+      "summary": "",
+      "details": "Waitress through version 1.3.1 implemented a \"MAY\" part of the RFC7230 which states: \"Although the line terminator for the start-line and header fields is the sequence CRLF, a recipient MAY recognize a single LF as a line terminator and ignore any preceding CR.\" Unfortunately if a front-end server does not parse header fields with an LF the same way as it does those with a CRLF it can lead to the front-end and the back-end server parsing the same HTTP message in two different ways. This can lead to a potential for HTTP request smuggling/splitting whereby Waitress may see two requests while the front-end server only sees a single HTTP message. This issue is fixed in Waitress 1.4.0.",
+      "aliases": [
+        "CVE-2019-16785",
+        "GHSA-pg36-wpm5-g57p"
+      ],
+      "published": "2019-12-20T23:15:00Z",
+      "modified": "2023-11-08T04:01:21.641524Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "waitress",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/Pylons/waitress",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "8eba394ad75deaf9e5cd15b78a3d16b12e6b0eba"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.4.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/Pylons/waitress/security/advisories/GHSA-pg36-wpm5-g57p"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/Pylons/waitress/commit/8eba394ad75deaf9e5cd15b78a3d16b12e6b0eba"
+        },
+        {
+          "type": "WEB",
+          "url": "https://docs.pylonsproject.org/projects/waitress/en/latest/#security-fixes"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/GVDHR2DNKCNQ7YQXISJ45NT4IQDX3LJ7/"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/LYEOTGWJZVKPRXX2HBNVIYWCX73QYPM5/"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://access.redhat.com/errata/RHSA-2020:0720"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2019-136",
+      "related_advisories": [
+        {
+          "id": "GHSA-pg36-wpm5-g57p",
+          "summary": "HTTP Request Smuggling: LF vs CRLF handling in Waitress",
+          "details": "### Impact\n\nWaitress implemented a &amp;quot;MAY&amp;quot; part of the RFC7230 (https://tools.ietf.org/html/rfc7230#section-3.5) which states:\n\n      Although the line terminator for the start-line and header fields is\n      the sequence CRLF, a recipient MAY recognize a single LF as a line\n      terminator and ignore any preceding CR.\n\nUnfortunately if a front-end server does not parse header fields with an LF the same way as it does those with a CRLF it can lead to the front-end and the back-end server parsing the same HTTP message in two different ways. This can lead to a potential for HTTP request smuggling/splitting whereby Waitress may see two requests while the front-end server only sees a single HTTP message.\n\nExample:\n\n```\nContent-Length: 100[CRLF]\nX-Header: x[LF]Content-Length: 0[CRLF]\n```\n\nWould get treated by Waitress as if it were:\n\n```\nContent-Length: 100\nX-Header: x\nContent-Length: 0\n```\n\nThis could potentially get used by attackers to split the HTTP request and smuggle a second request in the body of the first.\n\n\n### Patches\n\nThis issue is fixed in Waitress 1.4.0. This brings a range of changes to harden Waitress against potential HTTP request confusions, and may change the behaviour of Waitress behind non-conformist proxies. \n\nWaitress no longer implements the MAY part of the specification and instead requires that all lines are terminated correctly with CRLF. If any lines are found with a bare CR or LF a 400 Bad Request is sent back to the requesting entity.\n\nThe Pylons Project recommends upgrading as soon as possible, while validating that the changes in Waitress don&amp;#39;t cause any changes in behavior.\n\n### Workarounds\n\nVarious reverse proxies may have protections against sending potentially bad HTTP requests to the backend, and or hardening against potential issues like this. If the reverse proxy doesn&amp;#39;t use HTTP/1.1 for connecting to the backend issues are also somewhat mitigated, as HTTP pipelining does not exist in HTTP/1.0 and Waitress will close the connection after every single request (unless the Keep Alive header is explicitly sent... so this is not a fool proof security method)\n\n### Issues/more security issues:\n\n* open an issue at https://github.com/Pylons/waitress/issues (if not sensitive or security related)\n* email the Pylons Security mailing list: <email> (if security related)",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-pg36-wpm5-g57p"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "8eba394ad75deaf9e5cd15b78a3d16b12e6b0eba",
+      "authored_at": "2019-12-12T14:55:36-08:00",
+      "committed_at": "2019-12-19T15:59:57+01:00",
+      "message": "Remove support for non CRLF line endings\n\nhttps://tools.ietf.org/html/rfc7230#section-3.5 says that servers MAY\nimplement their parsers to use only the LF as a delimeter between lines,\nhowever if the frontend server does NOT do the same you can potentially\nallow a single HTTP request to be treated differently by the two\nservers.\n\nThis issue can be used to cause HTTP request smuggling or HTTP desync\nwhich may lead to vulnerabilities.\n\nTo increase robustness Waitress will no longer allow bare LF for HTTP\nmessages/headers and chunked encoding and instead now enforces that the\nline endings at CRLF.",
+      "url": "https://github.com/Pylons/waitress/commit/8eba394ad75deaf9e5cd15b78a3d16b12e6b0eba"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:52:18+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

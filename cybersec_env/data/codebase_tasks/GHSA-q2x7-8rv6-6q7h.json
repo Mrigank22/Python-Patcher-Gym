@@ -1,0 +1,135 @@
+{
+  "id": "GHSA-q2x7-8rv6-6q7h",
+  "aliases": [
+    "CVE-2024-56326",
+    "PYSEC-2026-1475"
+  ],
+  "cwes": [
+    "CWE-693"
+  ],
+  "severity": "MODERATE",
+  "package": "jinja2",
+  "repo": {
+    "owner": "pallets",
+    "name": "jinja",
+    "url": "https://github.com/pallets/jinja"
+  },
+  "base_commit": "0871c71d0166152801798c1e59b3b32d3fb7469e",
+  "fix_commit": "48b0687e05a5466a91cd5812d604fa37ad0943b4",
+  "python_requires": ">=3.7",
+  "changed_source_files": [
+    "src/jinja2/sandbox.py"
+  ],
+  "changed_test_files": [
+    "tests/test_security.py"
+  ],
+  "source_patch": "diff --git a/src/jinja2/sandbox.py b/src/jinja2/sandbox.py\nindex 8200195..9c9dae2 100644\n--- a/src/jinja2/sandbox.py\n+++ b/src/jinja2/sandbox.py\n@@ -8,6 +8,7 @@ import typing as t\n from _string import formatter_field_name_split  # type: ignore\n from collections import abc\n from collections import deque\n+from functools import update_wrapper\n from string import Formatter\n \n from markupsafe import EscapeFormatter\n@@ -83,20 +84,6 @@ _mutable_spec: t.Tuple[t.Tuple[t.Type[t.Any], t.FrozenSet[str]], ...] = (\n )\n \n \n-def inspect_format_method(callable: t.Callable[..., t.Any]) -> t.Optional[str]:\n-    if not isinstance(\n-        callable, (types.MethodType, types.BuiltinMethodType)\n-    ) or callable.__name__ not in (\"format\", \"format_map\"):\n-        return None\n-\n-    obj = callable.__self__\n-\n-    if isinstance(obj, str):\n-        return obj\n-\n-    return None\n-\n-\n def safe_range(*args: int) -> range:\n     \"\"\"A range that can't generate ranges with a length of more than\n     MAX_RANGE items.\n@@ -316,6 +303,9 @@ class SandboxedEnvironment(Environment):\n                     except AttributeError:\n                         pass\n                     else:\n+                        fmt = self.wrap_str_format(value)\n+                        if fmt is not None:\n+                            return fmt\n                         if self.is_safe_attribute(obj, argument, value):\n                             return value\n                         return self.unsafe_undefined(obj, argument)\n@@ -333,6 +323,9 @@ class SandboxedEnvironment(Environment):\n             except (TypeError, LookupError):\n                 pass\n         else:\n+            fmt = self.wrap_str_format(value)\n+            if fmt is not None:\n+                return fmt\n             if self.is_safe_attribute(obj, attribute, value):\n                 return value\n             return self.unsafe_undefined(obj, attribute)\n@@ -348,34 +341,49 @@ class SandboxedEnvironment(Environment):\n             exc=SecurityError,\n         )\n \n-    def format_string(\n-        self,\n-        s: str,\n-        args: t.Tuple[t.Any, ...],\n-        kwargs: t.Dict[str, t.Any],\n-        format_func: t.Optional[t.Callable[..., t.Any]] = None,\n-    ) -> str:\n-        \"\"\"If a format call is detected, then this is routed through this\n-        method so that our safety sandbox can be used for it.\n+    def wrap_str_format(self, value: t.Any) -> t.Optional[t.Callable[..., str]]:\n+        \"\"\"If the given value is a ``str.format`` or ``str.format_map`` method,\n+        return a new function than handles sandboxing. This is done at access\n+        rather than in :meth:`call`, so that calls made without ``call`` are\n+        also sandboxed.\n         \"\"\"\n+        if not isinstance(\n+            value, (types.MethodType, types.BuiltinMethodType)\n+        ) or value.__name__ not in (\"format\", \"format_map\"):\n+            return None\n+\n+        f_self: t.Any = value.__self__\n+\n+        if not isinstance(f_self, str):\n+            return None\n+\n+        str_type: t.Type[str] = type(f_self)\n+        is_format_map = value.__name__ == \"format_map\"\n         formatter: SandboxedFormatter\n-        if isinstance(s, Markup):\n-            formatter = SandboxedEscapeFormatter(self, escape=s.escape)\n+\n+        if isinstance(f_self, Markup):\n+            formatter = SandboxedEscapeFormatter(self, escape=f_self.escape)\n         else:\n             formatter = SandboxedFormatter(self)\n \n-        if format_func is not None and format_func.__name__ == \"format_map\":\n-            if len(args) != 1 or kwargs:\n-                raise TypeError(\n-                    \"format_map() takes exactly one argument\"\n-                    f\" {len(args) + (kwargs is not None)} given\"\n-                )\n+        vformat = formatter.vformat\n+\n+        def wrapper(*args: t.Any, **kwargs: t.Any) -> str:\n+            if is_format_map:\n+                if kwargs:\n+                    raise TypeError(\"format_map() takes no keyword arguments\")\n+\n+                if len(args) != 1:\n+                    raise TypeError(\n+                        f\"format_map() takes exactly one argument ({len(args)} given)\"\n+                    )\n+\n+                kwargs = args[0]\n+                args = ()\n \n-            kwargs = args[0]\n-            args = ()\n+            return str_type(vformat(f_self, args, kwargs))\n \n-        rv = formatter.vformat(s, args, kwargs)\n-        return type(s)(rv)\n+        return update_wrapper(wrapper, value)\n \n     def call(\n         __self,  # noqa: B902\n@@ -385,9 +393,6 @@ class SandboxedEnvironment(Environment):\n         **kwargs: t.Any,\n     ) -> t.Any:\n         \"\"\"Call an object from sandboxed code.\"\"\"\n-        fmt = inspect_format_method(__obj)\n-        if fmt is not None:\n-            return __self.format_string(fmt, args, kwargs, __obj)\n \n         # the double prefixes are to avoid double keyword argument\n         # errors when proxying the call.\n",
+  "test_patch": "diff --git a/tests/test_security.py b/tests/test_security.py\nindex 9c7c442..864d5f7 100644\n--- a/tests/test_security.py\n+++ b/tests/test_security.py\n@@ -173,3 +173,20 @@ class TestStringFormatMap:\n             '{{ (\"a{x.foo}b{y}\"|safe).format_map({\"x\":{\"foo\": 42}, \"y\":\"<foo>\"}) }}'\n         )\n         assert t.render() == \"a42b&lt;foo&gt;\"\n+\n+    def test_indirect_call(self):\n+        def run(value, arg):\n+            return value.run(arg)\n+\n+        env = SandboxedEnvironment()\n+        env.filters[\"run\"] = run\n+        t = env.from_string(\n+            \"\"\"{% set\n+                ns = namespace(run=\"{0.__call__.__builtins__[__import__]}\".format)\n+            %}\n+            {{ ns | run(not_here) }}\n+            \"\"\"\n+        )\n+\n+        with pytest.raises(SecurityError):\n+            t.render()\n",
+  "summary": "Jinja has a sandbox breakout through indirect reference to format method",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `jinja2` has a security vulnerability (CWE-693). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_security.TestStringFormatMap::test_indirect_call"
+  ],
+  "p2p_tests": [
+    "tests.test_security.TestSandbox::test_attr_filter",
+    "tests.test_security.TestSandbox::test_binary_operator_intercepting",
+    "tests.test_security.TestSandbox::test_immutable_environment",
+    "tests.test_security.TestSandbox::test_restricted",
+    "tests.test_security.TestSandbox::test_template_data",
+    "tests.test_security.TestSandbox::test_unary_operator_intercepting",
+    "tests.test_security.TestSandbox::test_unsafe",
+    "tests.test_security.TestStringFormat::test_basic_format_all_okay",
+    "tests.test_security.TestStringFormat::test_basic_format_safety",
+    "tests.test_security.TestStringFormat::test_empty_braces_format",
+    "tests.test_security.TestStringFormat::test_safe_format_all_okay",
+    "tests.test_security.TestStringFormat::test_safe_format_safety",
+    "tests.test_security.TestStringFormatMap::test_basic_format_all_okay",
+    "tests.test_security.TestStringFormatMap::test_basic_format_safety",
+    "tests.test_security.TestStringFormatMap::test_safe_format_all_okay"
+  ],
+  "test_files": [
+    "tests/test_security.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 15,
+  "n_after_pass": 16,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-q2x7-8rv6-6q7h",
+      "summary": "Jinja has a sandbox breakout through indirect reference to format method",
+      "details": "An oversight in how the Jinja sandboxed environment detects calls to `str.format` allows an attacker that controls the content of a template to execute arbitrary Python code.\n\nTo exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates.\n\nJinja's sandbox does catch calls to `str.format` and ensures they don't escape the sandbox. However, it's possible to store a reference to a malicious string's `format` method, then pass that to a filter that calls it. No such filters are built-in to Jinja, but could be present through custom filters in an application. After the fix, such indirect calls are also handled by the sandbox.",
+      "aliases": [
+        "CVE-2024-56326",
+        "PYSEC-2026-1475"
+      ],
+      "published": "2024-12-23T17:56:08Z",
+      "modified": "2026-09-10T03:50:21.662855250Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-693"
+      ],
+      "affected": [
+        {
+          "package": "jinja2",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "3.1.5"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/security/advisories/GHSA-q2x7-8rv6-6q7h"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-56326"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/commit/48b0687e05a5466a91cd5812d604fa37ad0943b4"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/pallets/jinja"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/releases/tag/3.1.5"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/04/msg00022.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-q2x7-8rv6-6q7h",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "48b0687e05a5466a91cd5812d604fa37ad0943b4",
+      "authored_at": "2024-12-19T14:33:08-08:00",
+      "committed_at": "2024-12-19T14:33:08-08:00",
+      "message": "Merge commit from fork\n\nfix format string vulnerability",
+      "url": "https://github.com/pallets/jinja/commit/48b0687e05a5466a91cd5812d604fa37ad0943b4"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T00:13:09+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

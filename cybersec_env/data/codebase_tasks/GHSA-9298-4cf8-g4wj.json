@@ -1,0 +1,246 @@
+{
+  "id": "GHSA-9298-4cf8-g4wj",
+  "aliases": [
+    "CVE-2024-49768",
+    "PYSEC-2024-210"
+  ],
+  "cwes": [
+    "CWE-367",
+    "CWE-444"
+  ],
+  "severity": "CRITICAL",
+  "package": "waitress",
+  "repo": {
+    "owner": "Pylons",
+    "name": "waitress",
+    "url": "https://github.com/Pylons/waitress"
+  },
+  "base_commit": "fdd2ecfd325af2f419d91c62b2551e2c3922f686",
+  "fix_commit": "e4359018537af376cf24bd13616d861e2fb76f65",
+  "python_requires": "",
+  "changed_source_files": [
+    "src/waitress/channel.py"
+  ],
+  "changed_test_files": [
+    "tests/test_channel.py"
+  ],
+  "source_patch": "diff --git a/src/waitress/channel.py b/src/waitress/channel.py\nindex 3860ed5..f4d9677 100644\n--- a/src/waitress/channel.py\n+++ b/src/waitress/channel.py\n@@ -140,7 +140,7 @@ class HTTPChannel(wasyncore.dispatcher):\n         # 1. We're not already about to close the connection.\n         # 2. We're not waiting to flush remaining data before closing the\n         #    connection\n-        # 3. There are not too many tasks already queued\n+        # 3. There are not too many tasks already queued (if lookahead is enabled)\n         # 4. There's no data in the output buffer that needs to be sent\n         #    before we potentially create a new task.\n \n@@ -196,6 +196,15 @@ class HTTPChannel(wasyncore.dispatcher):\n             return False\n \n         with self.requests_lock:\n+            # Don't bother processing anymore data if this connection is about\n+            # to close. This may happen if readable() returned True, on the\n+            # main thread before the service thread set the close_when_flushed\n+            # flag, and we read data but our service thread is attempting to\n+            # shut down the connection due to an error. We want to make sure we\n+            # do this while holding the request_lock so that we can't race\n+            if self.will_close or self.close_when_flushed:\n+                return False\n+\n             while data:\n                 if self.request is None:\n                     self.request = self.parser_class(self.adj)\n",
+  "test_patch": "diff --git a/tests/test_channel.py b/tests/test_channel.py\nindex 8467ae7..d798091 100644\n--- a/tests/test_channel.py\n+++ b/tests/test_channel.py\n@@ -18,7 +18,7 @@ class TestHTTPChannel(unittest.TestCase):\n         map = {}\n         inst = self._makeOne(sock, \"127.0.0.1\", adj, map=map)\n         inst.outbuf_lock = DummyLock()\n-        return inst, sock, map\n+        return inst, sock.local(), map\n \n     def test_ctor(self):\n         inst, _, map = self._makeOneWithMap()\n@@ -218,7 +218,7 @@ class TestHTTPChannel(unittest.TestCase):\n         def send(_):\n             return 0\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         wrote = inst.write_soon(b\"a\")\n         self.assertEqual(wrote, 1)\n@@ -236,7 +236,7 @@ class TestHTTPChannel(unittest.TestCase):\n         def send(_):\n             return 0\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         outbufs = inst.outbufs\n         wrote = inst.write_soon(wrapper)\n@@ -270,7 +270,7 @@ class TestHTTPChannel(unittest.TestCase):\n         def send(_):\n             return 0\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         inst.adj.outbuf_high_watermark = 3\n         inst.current_outbuf_count = 4\n@@ -286,7 +286,7 @@ class TestHTTPChannel(unittest.TestCase):\n         def send(_):\n             return 0\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         inst.adj.outbuf_high_watermark = 3\n         inst.total_outbufs_len = 4\n@@ -315,7 +315,7 @@ class TestHTTPChannel(unittest.TestCase):\n             inst.connected = False\n             raise Exception()\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         inst.adj.outbuf_high_watermark = 3\n         inst.total_outbufs_len = 4\n@@ -345,7 +345,7 @@ class TestHTTPChannel(unittest.TestCase):\n             inst.connected = False\n             raise Exception()\n \n-        sock.send = send\n+        sock.remote.send = send\n \n         wrote = inst.write_soon(b\"xyz\")\n         self.assertEqual(wrote, 3)\n@@ -376,7 +376,7 @@ class TestHTTPChannel(unittest.TestCase):\n         inst.total_outbufs_len = len(inst.outbufs[0])\n         inst.adj.send_bytes = 1\n         inst.adj.outbuf_high_watermark = 2\n-        sock.send = lambda x, do_close=True: False\n+        sock.remote.send = lambda x, do_close=True: False\n         inst.will_close = False\n         inst.last_activity = 0\n         result = inst.handle_write()\n@@ -400,7 +400,7 @@ class TestHTTPChannel(unittest.TestCase):\n \n     def test__flush_some_full_outbuf_socket_returns_zero(self):\n         inst, sock, map = self._makeOneWithMap()\n-        sock.send = lambda x: False\n+        sock.remote.send = lambda x: False\n         inst.outbufs[0].append(b\"abc\")\n         inst.total_outbufs_len = sum(len(x) for x in inst.outbufs)\n         result = inst._flush_some()\n@@ -805,11 +805,12 @@ class TestHTTPChannelLookahead(TestHTTPChannel):\n         )\n         return [body]\n \n-    def _make_app_with_lookahead(self):\n+    def _make_app_with_lookahead(self, recv_bytes=8192):\n         \"\"\"\n         Setup a channel with lookahead and store it and the socket in self\n         \"\"\"\n         adj = DummyAdjustments()\n+        adj.recv_bytes = recv_bytes\n         adj.channel_request_lookahead = 5\n         channel, sock, map = self._makeOneWithMap(adj=adj)\n         channel.server.application = self.app_check_disconnect\n@@ -901,13 +902,66 @@ class TestHTTPChannelLookahead(TestHTTPChannel):\n         self.assertEqual(data.split(\"\\r\\n\")[-1], \"finished\")\n         self.assertEqual(self.request_body, b\"x\")\n \n+    def test_lookahead_bad_request_drop_extra_data(self):\n+        \"\"\"\n+        Send two requests, the first one being bad, split on the recv_bytes\n+        limit, then emulate a race that could happen whereby we read data from\n+        the socket while the service thread is cleaning up due to an error\n+        processing the request.\n+        \"\"\"\n+\n+        invalid_request = [\n+            \"GET / HTTP/1.1\",\n+            \"Host: localhost:8080\",\n+            \"Content-length: -1\",\n+            \"\",\n+        ]\n+\n+        invalid_request_len = len(\"\".join([x + \"\\r\\n\" for x in invalid_request]))\n+\n+        second_request = [\n+            \"POST / HTTP/1.1\",\n+            \"Host: localhost:8080\",\n+            \"Content-Length: 1\",\n+            \"\",\n+            \"x\",\n+        ]\n+\n+        full_request = invalid_request + second_request\n+\n+        self._make_app_with_lookahead(recv_bytes=invalid_request_len)\n+        self._send(*full_request)\n+        self.channel.handle_read()\n+        self.assertEqual(len(self.channel.requests), 1)\n+        self.channel.server.tasks[0].service()\n+        self.assertTrue(self.channel.close_when_flushed)\n+        # Read all of the next request\n+        self.channel.handle_read()\n+        self.channel.handle_read()\n+        # Validate that there is no more data to be read\n+        self.assertEqual(self.sock.remote.local_sent, b\"\")\n+        # Validate that we dropped the data from the second read, and did not\n+        # create a new request\n+        self.assertEqual(len(self.channel.requests), 0)\n+        data = self.sock.recv(256).decode(\"ascii\")\n+        self.assertFalse(self.channel.readable())\n+        self.assertTrue(self.channel.writable())\n+\n+        # Handle the write, which will close the socket\n+        self.channel.handle_write()\n+        self.assertTrue(self.sock.closed)\n+\n+        data = self.sock.recv(256)\n+        self.assertEqual(len(data), 0)\n+\n \n class DummySock:\n     blocking = False\n     closed = False\n \n     def __init__(self):\n-        self.sent = b\"\"\n+        self.local_sent = b\"\"\n+        self.remote_sent = b\"\"\n \n     def setblocking(self, *arg):\n         self.blocking = True\n@@ -925,14 +979,44 @@ class DummySock:\n         self.closed = True\n \n     def send(self, data):\n-        self.sent += data\n+        self.remote_sent += data\n         return len(data)\n \n     def recv(self, buffer_size):\n-        result = self.sent[:buffer_size]\n-        self.sent = self.sent[buffer_size:]\n+        result = self.local_sent[:buffer_size]\n+        self.local_sent = self.local_sent[buffer_size:]\n         return result\n \n+    def local(self):\n+        outer = self\n+\n+        class LocalDummySock:\n+            def send(self, data):\n+                outer.local_sent += data\n+                return len(data)\n+\n+            def recv(self, buffer_size):\n+                result = outer.remote_sent[:buffer_size]\n+                outer.remote_sent = outer.remote_sent[buffer_size:]\n+                return result\n+\n+            def close(self):\n+                outer.closed = True\n+\n+            @property\n+            def sent(self):\n+                return outer.remote_sent\n+\n+            @property\n+            def closed(self):\n+                return outer.closed\n+\n+            @property\n+            def remote(self):\n+                return outer\n+\n+        return LocalDummySock()\n+\n \n class DummyLock:\n     notified = False\n",
+  "summary": "Waitress has request processing race condition in HTTP pipelining with invalid first request",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `waitress` has a security vulnerability (CWE-367, CWE-444). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_channel.TestHTTPChannelLookahead::test_lookahead_bad_request_drop_extra_data"
+  ],
+  "p2p_tests": [
+    "tests.test_channel.TestHTTPChannel::test__flush_some_empty_outbuf",
+    "tests.test_channel.TestHTTPChannel::test__flush_some_full_outbuf_socket_returns_nonzero",
+    "tests.test_channel.TestHTTPChannel::test__flush_some_full_outbuf_socket_returns_zero",
+    "tests.test_channel.TestHTTPChannel::test__flush_some_outbuf_len_gt_sys_maxint",
+    "tests.test_channel.TestHTTPChannel::test_add_channel",
+    "tests.test_channel.TestHTTPChannel::test_cancel_no_requests",
+    "tests.test_channel.TestHTTPChannel::test_cancel_with_requests",
+    "tests.test_channel.TestHTTPChannel::test_ctor",
+    "tests.test_channel.TestHTTPChannel::test_del_channel",
+    "tests.test_channel.TestHTTPChannel::test_flush_some_multiple_buffers_close_raises",
+    "tests.test_channel.TestHTTPChannel::test_flush_some_multiple_buffers_first_empty",
+    "tests.test_channel.TestHTTPChannel::test_handle_close",
+    "tests.test_channel.TestHTTPChannel::test_handle_close_outbuf_raises_on_close",
+    "tests.test_channel.TestHTTPChannel::test_handle_read_error",
+    "tests.test_channel.TestHTTPChannel::test_handle_read_no_error",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_close_when_flushed",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_no_notify_after_flush",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_no_request_with_outbuf",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_no_requests_no_outbuf_will_close",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_no_requests_outbuf_gt_send_bytes",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_not_connected",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_notify_after_flush",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_outbuf_raises_othererror",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_outbuf_raises_socketerror",
+    "tests.test_channel.TestHTTPChannel::test_handle_write_with_requests",
+    "tests.test_channel.TestHTTPChannel::test_readable_no_requests_not_will_close",
+    "tests.test_channel.TestHTTPChannel::test_readable_no_requests_will_close",
+    "tests.test_channel.TestHTTPChannel::test_readable_with_requests",
+    "tests.test_channel.TestHTTPChannel::test_received",
+    "tests.test_channel.TestHTTPChannel::test_received_headers_finished_expect_continue_false",
+    "tests.test_channel.TestHTTPChannel::test_received_headers_finished_expect_continue_true",
+    "tests.test_channel.TestHTTPChannel::test_received_headers_finished_expect_continue_true_sent_true",
+    "tests.test_channel.TestHTTPChannel::test_received_no_chunk",
+    "tests.test_channel.TestHTTPChannel::test_received_preq_completed_connection_close",
+    "tests.test_channel.TestHTTPChannel::test_received_preq_completed_empty",
+    "tests.test_channel.TestHTTPChannel::test_received_preq_error",
+    "tests.test_channel.TestHTTPChannel::test_received_preq_not_completed",
+    "tests.test_channel.TestHTTPChannel::test_service_with_multiple_requests",
+    "tests.test_channel.TestHTTPChannel::test_service_with_one_error_request",
+    "tests.test_channel.TestHTTPChannel::test_service_with_one_request",
+    "tests.test_channel.TestHTTPChannel::test_service_with_request_error_raises_disconnect",
+    "tests.test_channel.TestHTTPChannel::test_service_with_request_raises",
+    "tests.test_channel.TestHTTPChannel::test_service_with_request_raises_disconnect",
+    "tests.test_channel.TestHTTPChannel::test_service_with_requests_raises_already_wrote_header",
+    "tests.test_channel.TestHTTPChannel::test_service_with_requests_raises_didnt_write_header",
+    "tests.test_channel.TestHTTPChannel::test_service_with_requests_raises_didnt_write_header_expose_tbs",
+    "tests.test_channel.TestHTTPChannel::test_total_outbufs_len_an_outbuf_size_gt_sys_maxint",
+    "tests.test_channel.TestHTTPChannel::test_writable_nothing_in_outbuf",
+    "tests.test_channel.TestHTTPChannel::test_writable_nothing_in_outbuf_will_close",
+    "tests.test_channel.TestHTTPChannel::test_writable_something_in_outbuf",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_attempts_flush_high_water_and_exception",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_disconnected",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_disconnected_while_over_watermark",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_empty_byte",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_filewrapper",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_flush_and_exception",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_nonempty_byte",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_rotates_outbuf_on_overflow",
+    "tests.test_channel.TestHTTPChannel::test_write_soon_waits_on_backpressure",
+    "tests.test_channel.TestHTTPChannelLookahead::test__flush_some_empty_outbuf",
+    "tests.test_channel.TestHTTPChannelLookahead::test__flush_some_full_outbuf_socket_returns_nonzero",
+    "tests.test_channel.TestHTTPChannelLookahead::test__flush_some_full_outbuf_socket_returns_zero",
+    "tests.test_channel.TestHTTPChannelLookahead::test__flush_some_outbuf_len_gt_sys_maxint",
+    "tests.test_channel.TestHTTPChannelLookahead::test_add_channel",
+    "tests.test_channel.TestHTTPChannelLookahead::test_cancel_no_requests",
+    "tests.test_channel.TestHTTPChannelLookahead::test_cancel_with_requests",
+    "tests.test_channel.TestHTTPChannelLookahead::test_client_disconnect",
+    "tests.test_channel.TestHTTPChannelLookahead::test_client_disconnect_immediate",
+    "tests.test_channel.TestHTTPChannelLookahead::test_ctor",
+    "tests.test_channel.TestHTTPChannelLookahead::test_del_channel",
+    "tests.test_channel.TestHTTPChannelLookahead::test_flush_some_multiple_buffers_close_raises",
+    "tests.test_channel.TestHTTPChannelLookahead::test_flush_some_multiple_buffers_first_empty",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_close_outbuf_raises_on_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_read_error",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_read_no_error",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_close_when_flushed",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_no_notify_after_flush",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_no_request_with_outbuf",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_no_requests_no_outbuf_will_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_no_requests_outbuf_gt_send_bytes",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_not_connected",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_notify_after_flush",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_outbuf_raises_othererror",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_outbuf_raises_socketerror",
+    "tests.test_channel.TestHTTPChannelLookahead::test_handle_write_with_requests",
+    "tests.test_channel.TestHTTPChannelLookahead::test_lookahead_continue",
+    "tests.test_channel.TestHTTPChannelLookahead::test_readable_no_requests_not_will_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_readable_no_requests_will_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_readable_with_requests",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_headers_finished_expect_continue_false",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_headers_finished_expect_continue_true",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_headers_finished_expect_continue_true_sent_true",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_no_chunk",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_preq_completed_connection_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_preq_completed_empty",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_preq_error",
+    "tests.test_channel.TestHTTPChannelLookahead::test_received_preq_not_completed",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_multiple_requests",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_one_error_request",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_one_request",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_request_error_raises_disconnect",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_request_raises",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_request_raises_disconnect",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_requests_raises_already_wrote_header",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_requests_raises_didnt_write_header",
+    "tests.test_channel.TestHTTPChannelLookahead::test_service_with_requests_raises_didnt_write_header_expose_tbs",
+    "tests.test_channel.TestHTTPChannelLookahead::test_total_outbufs_len_an_outbuf_size_gt_sys_maxint",
+    "tests.test_channel.TestHTTPChannelLookahead::test_writable_nothing_in_outbuf",
+    "tests.test_channel.TestHTTPChannelLookahead::test_writable_nothing_in_outbuf_will_close",
+    "tests.test_channel.TestHTTPChannelLookahead::test_writable_something_in_outbuf",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_attempts_flush_high_water_and_exception",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_disconnected",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_disconnected_while_over_watermark",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_empty_byte",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_filewrapper",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_flush_and_exception",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_nonempty_byte",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_rotates_outbuf_on_overflow",
+    "tests.test_channel.TestHTTPChannelLookahead::test_write_soon_waits_on_backpressure"
+  ],
+  "test_files": [
+    "tests/test_channel.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 121,
+  "n_after_pass": 122,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-9298-4cf8-g4wj",
+      "summary": "Waitress has request processing race condition in HTTP pipelining with invalid first request",
+      "details": "### Impact\n\nA remote client may send a request that is exactly `recv_bytes` (defaults to 8192) long, followed by a secondary request using HTTP pipelining.\n\nWhen request lookahead is disabled (default) we won't read any more requests, and when the first request fails due to a parsing error, we simply close the connection.\n\nHowever when request lookahead is enabled, it is possible to process and receive the first request, start sending the error message back to the client while we read the next request and queue it. This will allow the secondary request to be serviced by the worker thread while the connection should be closed.\n\n### Patches\n\nWaitress 3.0.1 fixes the race condition.\n\n### Workarounds\n\nDisable  `channel_request_lookahead`, this is set to `0` by default disabling this feature. For this vulnerability this value is required to be changed from the default.\n\n### For more information\n\nIf you have any questions or comments about this advisory:\n* Open an issue in https://github.com/Pylons/waitress/issues (if not sensitive or security related)\n* email the Pylons Security mailing list: [<email>](mailto:<email>) (if security related)\n\n### Thanks\n\n- m4yfly and urn1ce From TianGong Team of Legendsec at Qi'anxin Group.",
+      "aliases": [
+        "CVE-2024-49768",
+        "PYSEC-2024-210"
+      ],
+      "published": "2024-10-29T14:45:03Z",
+      "modified": "2025-01-21T18:22:46.807383Z",
+      "severity": "CRITICAL",
+      "cwe_ids": [
+        "CWE-367",
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "package": "waitress",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0"
+                },
+                {
+                  "fixed": "3.0.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/waitress/security/advisories/GHSA-9298-4cf8-g4wj"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-49768"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/waitress/commit/e4359018537af376cf24bd13616d861e2fb76f65"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/Pylons/waitress"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/waitress/PYSEC-2024-210.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-9298-4cf8-g4wj",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2024-210",
+          "summary": "",
+          "details": "Waitress is a Web Server Gateway Interface server for Python 2 and 3. A remote client may send a request that is exactly recv_bytes (defaults to 8192) long, followed by a secondary request using HTTP pipelining. When request lookahead is disabled (default) we won't read any more requests, and when the first request fails due to a parsing error, we simply close the connection. However when request lookahead is enabled, it is possible to process and receive the first request, start sending the error message back to the client while we read the next request and queue it. This will allow the secondary request to be serviced by the worker thread while the connection should be closed. Waitress 3.0.1 fixes the race condition. As a workaround, disable channel_request_lookahead, this is set to 0 by default disabling this feature.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2024-210"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "e4359018537af376cf24bd13616d861e2fb76f65",
+      "authored_at": "2024-10-28T18:05:50-06:00",
+      "committed_at": "2024-10-28T18:05:50-06:00",
+      "message": "Merge commit from fork\n\nFix a race condition on recv_bytes boundary when request is invalid",
+      "url": "https://github.com/Pylons/waitress/commit/e4359018537af376cf24bd13616d861e2fb76f65"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:19+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

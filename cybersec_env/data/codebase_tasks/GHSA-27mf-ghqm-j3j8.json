@@ -1,0 +1,237 @@
+{
+  "id": "GHSA-27mf-ghqm-j3j8",
+  "aliases": [
+    "CVE-2024-52303",
+    "PYSEC-2026-1096"
+  ],
+  "cwes": [
+    "CWE-772"
+  ],
+  "severity": "MODERATE",
+  "package": "aiohttp",
+  "repo": {
+    "owner": "aio-libs",
+    "name": "aiohttp",
+    "url": "https://github.com/aio-libs/aiohttp"
+  },
+  "base_commit": "158bf304bdd8047eec192540fa5bf7fe3862bffd",
+  "fix_commit": "bc15db61615079d1b6327ba42c682f758fa96936",
+  "python_requires": "",
+  "changed_source_files": [
+    "aiohttp/web_app.py"
+  ],
+  "changed_test_files": [
+    "tests/test_web_middleware.py"
+  ],
+  "source_patch": "diff --git a/aiohttp/web_app.py b/aiohttp/web_app.py\nindex 78b1a67..81a8483 100644\n--- a/aiohttp/web_app.py\n+++ b/aiohttp/web_app.py\n@@ -54,6 +54,7 @@ from .web_urldispatcher import (\n     MaskDomain,\n     MatchedSubAppResource,\n     PrefixedSubAppResource,\n+    SystemRoute,\n     UrlDispatcher,\n )\n \n@@ -79,7 +80,6 @@ _U = TypeVar(\"_U\")\n _Resource = TypeVar(\"_Resource\", bound=AbstractResource)\n \n \n-@lru_cache(None)\n def _build_middlewares(\n     handler: Handler, apps: Tuple[\"Application\", ...]\n ) -> Callable[[Request], Awaitable[StreamResponse]]:\n@@ -90,6 +90,9 @@ def _build_middlewares(\n     return handler\n \n \n+_cached_build_middleware = lru_cache(maxsize=1024)(_build_middlewares)\n+\n+\n class Application(MutableMapping[Union[str, AppKey[Any]], Any]):\n     ATTRS = frozenset(\n         [\n@@ -544,8 +547,13 @@ class Application(MutableMapping[Union[str, AppKey[Any]], Any]):\n         handler = match_info.handler\n \n         if self._run_middlewares:\n-            if not self._has_legacy_middlewares:\n-                handler = _build_middlewares(handler, match_info.apps)\n+            # If its a SystemRoute, don't cache building the middlewares since\n+            # they are constructed for every MatchInfoError as a new handler\n+            # is made each time.\n+            if not self._has_legacy_middlewares and not isinstance(\n+                match_info.route, SystemRoute\n+            ):\n+                handler = _cached_build_middleware(handler, match_info.apps)\n             else:\n                 for app in match_info.apps[::-1]:\n                     for m, new_style in app._middlewares_handlers:  # type: ignore[union-attr]\n",
+  "test_patch": "diff --git a/tests/test_web_middleware.py b/tests/test_web_middleware.py\nindex 9c4462b..13acc58 100644\n--- a/tests/test_web_middleware.py\n+++ b/tests/test_web_middleware.py\n@@ -1,10 +1,11 @@\n import re\n-from typing import Any\n+from typing import Any, NoReturn\n \n import pytest\n from yarl import URL\n \n-from aiohttp import web\n+from aiohttp import web, web_app\n+from aiohttp.pytest_plugin import AiohttpClient\n from aiohttp.typedefs import Handler\n \n \n@@ -520,3 +521,27 @@ async def test_new_style_middleware_method(loop, aiohttp_client) -> None:\n     assert 201 == resp.status\n     txt = await resp.text()\n     assert \"OK[new style middleware]\" == txt\n+\n+\n+async def test_middleware_does_not_leak(aiohttp_client: AiohttpClient) -> None:\n+    async def any_handler(request: web.Request) -> NoReturn:\n+        assert False\n+\n+    class Middleware:\n+        @web.middleware\n+        async def call(\n+            self, request: web.Request, handler: Handler\n+        ) -> web.StreamResponse:\n+            return await handler(request)\n+\n+    app = web.Application()\n+    app.router.add_route(\"POST\", \"/any\", any_handler)\n+    app.middlewares.append(Middleware().call)\n+\n+    client = await aiohttp_client(app)\n+\n+    web_app._cached_build_middleware.cache_clear()\n+    for _ in range(10):\n+        resp = await client.get(\"/any\")\n+        assert resp.status == 405\n+    assert web_app._cached_build_middleware.cache_info().currsize < 10\n",
+  "summary": "aiohttp has a memory leak when middleware is enabled when requesting a resource with a non-allowed method",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `aiohttp` has a security vulnerability (CWE-772). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_web_middleware::test_middleware_does_not_leak[pyloop]"
+  ],
+  "p2p_tests": [
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource1/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource1/?p1=1&p2=2-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource1?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2/?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2/a/b%2Fc-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2/a/b%2Fc/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_add_trailing_when_necessary[pyloop-/resource2?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource1/a///b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource1/a///b/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource1/a///b/?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource1/a///b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource2/a///b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource2/a///b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource2/a///b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/////resource2/a///b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource1//a//b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource1//a//b/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource1//a//b/?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource1//a//b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource2//a//b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource2//a//b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource2//a//b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-///resource2//a//b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b/-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b/-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b/?p=1-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b/?p=1-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b?p=1-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-//resource2//a//b?p=1-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource1/a/b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource1/a/b/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource1/a/b/?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource1/a/b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource2/a/b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_append_and_merge_slash[pyloop-/resource2/a/b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_cannot_remove_and_add_slash",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/////resource1/a///b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/////resource1/a///b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/////resource1/a//b/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/////resource1/a//b/?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-///resource1//a//b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-///resource1//a//b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-//resource1//a//b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-//resource1//a//b/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-//resource1//a//b/?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-//resource1//a//b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/resource1/a/b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_merge_slash[pyloop-/resource1/a/b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource1/-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource1/?p1=1&p2=2-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource1?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2/?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2/a/b%2Fc-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2/a/b%2Fc/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_no_trailing_slash_when_disabled[pyloop-/resource2?p1=1&p2=2-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_open_redirects[pyloop-False-False]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_open_redirects[pyloop-False-True]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_open_redirects[pyloop-True-False]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource1/a///b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource1/a///b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource1/a///b///-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource1/a///b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource1/a///b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource2/a///b-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource2/a///b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource2/a///b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/////resource2/a///b?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource1//a//b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource1//a//b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource1//a//b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource1//a//b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource2//a//b-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource2//a//b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource2//a//b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-///resource2//a//b?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b-404_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b-404_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b/-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b/-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b/?p=1-200_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b/?p=1-200_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b?p=1-404_0]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-//resource2//a//b?p=1-404_1]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource1/a/b-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource1/a/b/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource1/a/b/?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource1/a/b?p=1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource2/a/b-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_and_merge_slash[pyloop-/resource2/a/b?p=1-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource1-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource1/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource1/?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource1?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2/?p1=1&p2=2-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2/a/b%2Fc-404]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2/a/b%2Fc/-200]",
+    "tests.test_web_middleware.TestNormalizePathMiddleware::test_remove_trailing_when_necessary[pyloop-/resource2?p1=1&p2=2-404]",
+    "tests.test_web_middleware::test_middleware_chain[pyloop]",
+    "tests.test_web_middleware::test_middleware_handles_exception[pyloop]",
+    "tests.test_web_middleware::test_middleware_modifies_response[pyloop]",
+    "tests.test_web_middleware::test_middleware_subapp[pyloop]",
+    "tests.test_web_middleware::test_new_style_middleware_class[pyloop]",
+    "tests.test_web_middleware::test_new_style_middleware_method[pyloop]",
+    "tests.test_web_middleware::test_old_style_middleware[pyloop]",
+    "tests.test_web_middleware::test_old_style_middleware_class[pyloop]"
+  ],
+  "test_files": [
+    "tests/test_web_middleware.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 115,
+  "n_after_pass": 116,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-27mf-ghqm-j3j8",
+      "summary": "aiohttp has a memory leak when middleware is enabled when requesting a resource with a non-allowed method",
+      "details": "### Summary\n\nA memory leak can occur when a request produces a `MatchInfoError`. This was caused by adding an entry to a cache on each request, due to the building of each `MatchInfoError` producing a unique cache entry.\n\n### Impact\n\nIf the user is making use of any middlewares with `aiohttp.web` then it is advisable to upgrade immediately.\n\nAn attacker may be able to exhaust the memory resources of a server by sending a substantial number (100,000s to millions) of such requests.\n\n-----\n\nPatch: https://github.com/aio-libs/aiohttp/commit/bc15db61615079d1b6327ba42c682f758fa96936",
+      "aliases": [
+        "CVE-2024-52303",
+        "PYSEC-2026-1096"
+      ],
+      "published": "2024-11-18T21:02:17Z",
+      "modified": "2026-09-10T03:50:20.382497140Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-772"
+      ],
+      "affected": [
+        {
+          "package": "aiohttp",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "3.10.6"
+                },
+                {
+                  "fixed": "3.10.11"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/aio-libs/aiohttp/security/advisories/GHSA-27mf-ghqm-j3j8"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-52303"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/aio-libs/aiohttp/commit/bc15db61615079d1b6327ba42c682f758fa96936"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/aio-libs/aiohttp"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-27mf-ghqm-j3j8",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "bc15db61615079d1b6327ba42c682f758fa96936",
+      "authored_at": "2024-11-13T08:44:23-06:00",
+      "committed_at": "2024-11-13T14:44:23Z",
+      "message": "[PR #9852/249855a backport][3.10] Fix system routes polluting the middleware cache (#9855)",
+      "url": "https://github.com/aio-libs/aiohttp/commit/bc15db61615079d1b6327ba42c682f758fa96936"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 9855,
+        "url": "https://github.com/aio-libs/aiohttp/pull/9855",
+        "title": "[PR #9852/249855a backport][3.10] Fix system routes polluting the middleware cache",
+        "body": "(cherry picked from commit 249855ad9cdbdb3d6eca90a0a5b675c409274ab6)\r\n",
+        "merged_at": "2024-11-13T14:44:23Z",
+        "merge_commit_sha": "bc15db61615079d1b6327ba42c682f758fa96936"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:51:38+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

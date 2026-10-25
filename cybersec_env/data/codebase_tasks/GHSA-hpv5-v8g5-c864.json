@@ -1,0 +1,143 @@
+{
+  "id": "GHSA-hpv5-v8g5-c864",
+  "aliases": [
+    "CVE-2017-15612",
+    "PYSEC-2017-80"
+  ],
+  "cwes": [
+    "CWE-79"
+  ],
+  "severity": "MODERATE",
+  "package": "mistune",
+  "repo": {
+    "owner": "lepture",
+    "name": "mistune",
+    "url": "https://github.com/lepture/mistune"
+  },
+  "base_commit": "5b8c3f7db4321bada0b955a9fb833a3faba4a67f",
+  "fix_commit": "d6f0b6402299bf5a380e7b4e77bd80e8736630fe",
+  "python_requires": "",
+  "changed_source_files": [
+    "mistune.py"
+  ],
+  "changed_test_files": [
+    "tests/__init__.py",
+    "tests/test_extra.py"
+  ],
+  "source_patch": "diff --git a/mistune.py b/mistune.py\nindex 68c75de..fae70e4 100644\n--- a/mistune.py\n+++ b/mistune.py\n@@ -75,8 +75,9 @@ def escape(text, quote=False, smart_amp=True):\n def escape_link(url):\n     \"\"\"Remove dangerous URL schemes like javascript: and escape afterwards.\"\"\"\n     lower_url = url.lower().strip('\\x00\\x1a \\n\\r\\t')\n+\n     for scheme in _scheme_blacklist:\n-        if lower_url.startswith(scheme):\n+        if re.sub(r'[^A-Za-z0-9\\/:]+', '', lower_url).startswith(scheme):\n             return ''\n     return escape(url, quote=True, smart_amp=False)\n \n@@ -844,7 +845,7 @@ class Renderer(object):\n         :param link: link content or email address.\n         :param is_email: whether this is an email or not.\n         \"\"\"\n-        text = link = escape(link)\n+        text = link = escape_link(link)\n         if is_email:\n             link = 'mailto:%s' % link\n         return '<a href=\"%s\">%s</a>' % (link, text)\n",
+  "test_patch": "diff --git a/tests/__init__.py b/tests/__init__.py\nnew file mode 100644\nindex 0000000..e69de29\ndiff --git a/tests/test_extra.py b/tests/test_extra.py\nindex cd475ab..c1d37d9 100644\n--- a/tests/test_extra.py\n+++ b/tests/test_extra.py\n@@ -23,6 +23,8 @@ def test_safe_links():\n         ('javascript:alert`1`', ''),\n         # bypass attempt\n         ('jAvAsCrIpT:alert`1`', ''),\n+        # bypass with newline \n+        ('javasc\\nript:alert`1`', ''),\n         # javascript pseudo protocol with entities\n         ('javascript&colon;alert`1`', 'javascript&amp;colon;alert`1`'),\n         # javascript pseudo protocol with prefix (dangerous in Chrome)\n",
+  "summary": "Cross-site Scripting in Mistune",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `mistune` has a security vulnerability (CWE-79). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_extra::test_safe_links"
+  ],
+  "p2p_tests": [
+    "tests.test_extra::test_block_html",
+    "tests.test_extra::test_escape",
+    "tests.test_extra::test_hard_wrap_renderer",
+    "tests.test_extra::test_linebreak",
+    "tests.test_extra::test_not_escape_block_tags",
+    "tests.test_extra::test_not_escape_inline_tags",
+    "tests.test_extra::test_parse_block_html",
+    "tests.test_extra::test_parse_inline_html",
+    "tests.test_extra::test_skip_style",
+    "tests.test_extra::test_trigger_more_cases",
+    "tests.test_extra::test_use_xhtml"
+  ],
+  "test_files": [
+    "tests/__init__.py",
+    "tests/test_extra.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 11,
+  "n_after_pass": 12,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-hpv5-v8g5-c864",
+      "summary": "Cross-site Scripting in Mistune",
+      "details": "mistune.py in Mistune 0.7.4 allows XSS via an unexpected newline (such as in java\\nscript:) or a crafted email address, related to the escape and autolink functions.",
+      "aliases": [
+        "CVE-2017-15612",
+        "PYSEC-2017-80"
+      ],
+      "published": "2022-05-17T00:26:00Z",
+      "modified": "2024-02-16T08:01:43.287585Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "package": "mistune",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.8"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2017-15612"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/lepture/mistune/pull/140"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/lepture/mistune/commit/d6f0b6402299bf5a380e7b4e77bd80e8736630fe"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-hpv5-v8g5-c864"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/lepture/mistune"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/mistune/PYSEC-2017-80.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-hpv5-v8g5-c864",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "d6f0b6402299bf5a380e7b4e77bd80e8736630fe",
+      "authored_at": "2017-10-19T01:13:52+09:00",
+      "committed_at": "2017-10-19T01:14:04+09:00",
+      "message": "Fix bypassing XSS vulnerability.\n\nBypasing with newline.\n\nOld:\n>>> markdown('''[aa](java\n... script:alert`1`;)''')\n'<p><a href=\"java\\nscript:alert`1`;\">aa</a></p>\\n'\n\nNew:\n>>> markdown('''[aa](java\n... script:alert`1`;)''')\n'<p><a href=\"\">aa</a></p>\\n'\n\nBypassing with malicious mail address.\n\nOld:\n>>> markdown('<<email>\"\\nonclick=\"alert(1);>')\n'<p><a href=\"mailto:<email>\"\\nonclick=\"alert(1);\"><email>\"\\nonclick=\"alert(1);</a></p>\\n'\n\nNew:\n>>> markdown('<<email>\"\\nonclick=\"alert(1);>')\n'<p><a href=\"mailto:<email>&quot;\\nonclick=&quot;alert(1);\"><email>&quot;\\nonclick=&quot;alert(1);</a></p>\\n'",
+      "url": "https://github.com/lepture/mistune/commit/d6f0b6402299bf5a380e7b4e77bd80e8736630fe"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 140,
+        "url": "https://github.com/lepture/mistune/pull/140",
+        "title": "XSS CVE-2017-15612",
+        "body": "CVE-2017-15612\r\n\r\nSee the commit log.",
+        "merged_at": "2017-10-26T16:49:11Z",
+        "merge_commit_sha": "ab8f7de8bc78c2a88f9e01522b8a3a0aa8cd9416"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:24:31+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

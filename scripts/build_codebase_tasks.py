@@ -48,24 +48,47 @@ _PYREQ_RE = re.compile(r"""python_requires\s*=\s*['"]([^'"]+)['"]""")
 _PYREQ_TOML_RE = re.compile(r"""requires-python\s*=\s*['"]([^'"]+)['"]""")
 
 
+def _rmtree(path) -> None:
+    """``shutil.rmtree`` that also removes read-only files (git marks its pack
+    files read-only on Windows, so a plain ``ignore_errors`` delete leaks them)."""
+    import os
+    import stat
+
+    def _retry(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_retry)
+    else:
+        shutil.rmtree(path, onerror=_retry)
+
+
 def run(cmd, cwd=None, timeout=180):
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                          timeout=timeout, errors="replace")
+                          timeout=timeout, encoding="utf-8", errors="replace")
 
 
 def fetch_commit(repo_url: str, sha: str, workdir: str) -> bool:
-    """Shallow-fetch ``sha`` and its parent into a fresh repo at ``workdir``."""
+    """Shallow-fetch ``sha`` and its parent into a fresh repo at ``workdir``.
+
+    Commits and trees only (``--filter=blob:none``), no checkout: ``git diff``
+    then lazily downloads just the changed files. Fetching every blob of both
+    commits cost hundreds of MB of RAM and bandwidth per large repo, when
+    triage only ever reads the diff and three small metadata files.
+    """
     if run(["git", "init", "-q", workdir]).returncode != 0:
         return False
-    env_cmds = [
-        ["git", "-C", workdir, "remote", "add", "origin", repo_url],
-        # depth 2 brings the commit and its first parent, enough for the diff.
-        ["git", "-C", workdir, "fetch", "-q", "--depth", "2", "origin", sha],
-    ]
-    for c in env_cmds:
-        if run(c, timeout=240).returncode != 0:
-            return False
-    return run(["git", "-C", workdir, "checkout", "-q", sha]).returncode == 0
+    if run(["git", "-C", workdir, "remote", "add", "origin", repo_url]).returncode != 0:
+        return False
+    # depth 2 brings the commit and its first parent, enough for the diff.
+    for extra in (["--filter=blob:none"], []):  # full fetch if a server lacks filters
+        if run(["git", "-C", workdir, "fetch", "-q", "--depth", "2", *extra, "origin", sha],
+               timeout=240).returncode == 0:
+            return True
+    return False
 
 
 def diff_files(workdir: str, sha: str):
@@ -82,17 +105,13 @@ def patch_for(workdir: str, sha: str, paths):
     return r.stdout if r.returncode == 0 else ""
 
 
-def python_requires(workdir: str) -> str:
+def python_requires(workdir: str, sha: str) -> str:
     for rel, rx in (("setup.cfg", _PYREQ_RE), ("setup.py", _PYREQ_RE),
                     ("pyproject.toml", _PYREQ_TOML_RE)):
-        p = Path(workdir) / rel
-        if p.is_file():
-            try:
-                m = rx.search(p.read_text(encoding="utf-8", errors="replace"))
-            except Exception:
-                m = None
-            if m:
-                return m.group(1)
+        r = run(["git", "-C", workdir, "show", f"{sha}:{rel}"])
+        m = rx.search(r.stdout) if r.returncode == 0 else None
+        if m:
+            return m.group(1)
     return ""
 
 
@@ -123,7 +142,7 @@ def triage_one(cand: dict) -> dict:
             "repo": cand["repo"],
             "base_commit": None,  # resolved below to the parent sha
             "fix_commit": sha,
-            "python_requires": python_requires(work),
+            "python_requires": python_requires(work, sha),
             "changed_source_files": src_files,
             "changed_test_files": test_files,
             "source_patch": patch_for(work, sha, src_files),
@@ -139,12 +158,12 @@ def triage_one(cand: dict) -> dict:
             return {"id": cand["id"], "status": "empty_source_patch"}
         SPECS.mkdir(parents=True, exist_ok=True)
         (SPECS / f"{_safe(cand['id'])}.json").write_text(json.dumps(spec, indent=2),
-                                                         encoding="utf-8")
+                                                         encoding="utf-8", newline="\n")
         return {"id": cand["id"], "status": "spec_written",
                 "n_src": len(src_files), "n_test": len(test_files),
                 "cwe": (cand.get("cwes") or ["?"])[0]}
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree(work)
 
 
 def _safe(advisory_id: str) -> str:
@@ -230,7 +249,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "triage_report.json").write_text(
         json.dumps({"n": len(chosen), "status": dict(status),
-                    "written": written}, indent=2), encoding="utf-8")
+                    "written": written}, indent=2), encoding="utf-8", newline="\n")
     print(f"specs in {SPECS}, report in {OUT/'triage_report.json'}")
 
     if args.verify and written:

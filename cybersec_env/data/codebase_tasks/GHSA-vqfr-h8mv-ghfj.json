@@ -1,0 +1,135 @@
+{
+  "id": "GHSA-vqfr-h8mv-ghfj",
+  "aliases": [
+    "CVE-2025-43859",
+    "PYSEC-2026-348"
+  ],
+  "cwes": [
+    "CWE-444"
+  ],
+  "severity": "CRITICAL",
+  "package": "h11",
+  "repo": {
+    "owner": "python-hyper",
+    "name": "h11",
+    "url": "https://github.com/python-hyper/h11"
+  },
+  "base_commit": "9462006f6ce4941661888228cbd4ac1ea80689b0",
+  "fix_commit": "114803a29ce50116dc47951c690ad4892b1a36ed",
+  "python_requires": ">=3.8",
+  "changed_source_files": [
+    "h11/_readers.py"
+  ],
+  "changed_test_files": [
+    "h11/tests/test_io.py"
+  ],
+  "source_patch": "diff --git a/h11/_readers.py b/h11/_readers.py\nindex 08a9574..1348565 100644\n--- a/h11/_readers.py\n+++ b/h11/_readers.py\n@@ -148,10 +148,9 @@ chunk_header_re = re.compile(chunk_header.encode(\"ascii\"))\n class ChunkedReader:\n     def __init__(self) -> None:\n         self._bytes_in_chunk = 0\n-        # After reading a chunk, we have to throw away the trailing \\r\\n; if\n-        # this is >0 then we discard that many bytes before resuming regular\n-        # de-chunkification.\n-        self._bytes_to_discard = 0\n+        # After reading a chunk, we have to throw away the trailing \\r\\n.\n+        # This tracks the bytes that we need to match and throw away.\n+        self._bytes_to_discard = b\"\"\n         self._reading_trailer = False\n \n     def __call__(self, buf: ReceiveBuffer) -> Union[Data, EndOfMessage, None]:\n@@ -160,15 +159,19 @@ class ChunkedReader:\n             if lines is None:\n                 return None\n             return EndOfMessage(headers=list(_decode_header_lines(lines)))\n-        if self._bytes_to_discard > 0:\n-            data = buf.maybe_extract_at_most(self._bytes_to_discard)\n+        if self._bytes_to_discard:\n+            data = buf.maybe_extract_at_most(len(self._bytes_to_discard))\n             if data is None:\n                 return None\n-            self._bytes_to_discard -= len(data)\n-            if self._bytes_to_discard > 0:\n+            if data != self._bytes_to_discard[:len(data)]:\n+                raise LocalProtocolError(\n+                    f\"malformed chunk footer: {data!r} (expected {self._bytes_to_discard!r})\"\n+                )\n+            self._bytes_to_discard = self._bytes_to_discard[len(data):]\n+            if self._bytes_to_discard:\n                 return None\n             # else, fall through and read some more\n-        assert self._bytes_to_discard == 0\n+        assert self._bytes_to_discard == b\"\"\n         if self._bytes_in_chunk == 0:\n             # We need to refill our chunk count\n             chunk_header = buf.maybe_extract_next_line()\n@@ -194,7 +197,7 @@ class ChunkedReader:\n             return None\n         self._bytes_in_chunk -= len(data)\n         if self._bytes_in_chunk == 0:\n-            self._bytes_to_discard = 2\n+            self._bytes_to_discard = b\"\\r\\n\"\n             chunk_end = True\n         else:\n             chunk_end = False\n",
+  "test_patch": "diff --git a/h11/tests/test_io.py b/h11/tests/test_io.py\nindex 42137b0..279db50 100644\n--- a/h11/tests/test_io.py\n+++ b/h11/tests/test_io.py\n@@ -348,22 +348,34 @@ def _run_reader(*args: Any) -> List[Event]:\n     return normalize_data_events(events)\n \n \n-def t_body_reader(thunk: Any, data: bytes, expected: Any, do_eof: bool = False) -> None:\n+def t_body_reader(thunk: Any, data: bytes, expected: list, do_eof: bool = False) -> None:\n     # Simple: consume whole thing\n     print(\"Test 1\")\n     buf = makebuf(data)\n-    assert _run_reader(thunk(), buf, do_eof) == expected\n+    try:\n+        assert _run_reader(thunk(), buf, do_eof) == expected\n+    except LocalProtocolError:\n+        if LocalProtocolError in expected:\n+            pass\n+        else:\n+            raise\n \n     # Incrementally growing buffer\n     print(\"Test 2\")\n     reader = thunk()\n     buf = ReceiveBuffer()\n     events = []\n-    for i in range(len(data)):\n-        events += _run_reader(reader, buf, False)\n-        buf += data[i : i + 1]\n-    events += _run_reader(reader, buf, do_eof)\n-    assert normalize_data_events(events) == expected\n+    try:\n+        for i in range(len(data)):\n+            events += _run_reader(reader, buf, False)\n+            buf += data[i : i + 1]\n+        events += _run_reader(reader, buf, do_eof)\n+        assert normalize_data_events(events) == expected\n+    except LocalProtocolError:\n+        if LocalProtocolError in expected:\n+            pass\n+        else:\n+            raise\n \n     is_complete = any(type(event) is EndOfMessage for event in expected)\n     if is_complete and not do_eof:\n@@ -424,14 +436,12 @@ def test_ChunkedReader() -> None:\n     )\n \n     # refuses arbitrarily long chunk integers\n-    with pytest.raises(LocalProtocolError):\n-        # Technically this is legal HTTP/1.1, but we refuse to process chunk\n-        # sizes that don't fit into 20 characters of hex\n-        t_body_reader(ChunkedReader, b\"9\" * 100 + b\"\\r\\nxxx\", [Data(data=b\"xxx\")])\n+    # Technically this is legal HTTP/1.1, but we refuse to process chunk\n+    # sizes that don't fit into 20 characters of hex\n+    t_body_reader(ChunkedReader, b\"9\" * 100 + b\"\\r\\nxxx\", [LocalProtocolError])\n \n     # refuses garbage in the chunk count\n-    with pytest.raises(LocalProtocolError):\n-        t_body_reader(ChunkedReader, b\"10\\x00\\r\\nxxx\", None)\n+    t_body_reader(ChunkedReader, b\"10\\x00\\r\\nxxx\", [LocalProtocolError])\n \n     # handles (and discards) \"chunk extensions\" omg wtf\n     t_body_reader(\n@@ -445,10 +455,22 @@ def test_ChunkedReader() -> None:\n \n     t_body_reader(\n         ChunkedReader,\n-        b\"5   \t \\r\\n01234\\r\\n\" + b\"0\\r\\n\\r\\n\",\n+        b\"5   \\t \\r\\n01234\\r\\n\" + b\"0\\r\\n\\r\\n\",\n         [Data(data=b\"01234\"), EndOfMessage()],\n     )\n \n+    # Chunked encoding with bad chunk termination characters are refused. Originally we\n+    # simply dropped the 2 bytes after a chunk, instead of validating that the bytes\n+    # were \\r\\n -- so we would successfully decode the data below as b\"xxxa\". And\n+    # apparently there are other HTTP processors that ignore the chunk length and just\n+    # keep reading until they see \\r\\n, so they would decode it as b\"xxx__1a\". Any time\n+    # two HTTP processors accept the same input but interpret it differently, there's a\n+    # possibility of request smuggling shenanigans. So we now reject this.\n+    t_body_reader(ChunkedReader, b\"3\\r\\nxxx__1a\\r\\n\", [LocalProtocolError])\n+\n+    # Confirm we check both bytes individually\n+    t_body_reader(ChunkedReader, b\"3\\r\\nxxx\\r_1a\\r\\n\", [LocalProtocolError])\n+    t_body_reader(ChunkedReader, b\"3\\r\\nxxx_\\n1a\\r\\n\", [LocalProtocolError])\n \n def test_ContentLengthWriter() -> None:\n     w = ContentLengthWriter(5)\n@@ -471,8 +493,8 @@ def test_ContentLengthWriter() -> None:\n         dowrite(w, EndOfMessage())\n \n     w = ContentLengthWriter(5)\n-    dowrite(w, Data(data=b\"123\")) == b\"123\"\n-    dowrite(w, Data(data=b\"45\")) == b\"45\"\n+    assert dowrite(w, Data(data=b\"123\")) == b\"123\"\n+    assert dowrite(w, Data(data=b\"45\")) == b\"45\"\n     with pytest.raises(LocalProtocolError):\n         dowrite(w, EndOfMessage(headers=[(\"Etag\", \"asdf\")]))\n \n",
+  "summary": "h11 accepts some malformed Chunked-Encoding bodies",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `h11` has a security vulnerability (CWE-444). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "h11.tests.test_io::test_ChunkedReader"
+  ],
+  "p2p_tests": [
+    "h11.tests.test_io::test_ChunkedWriter",
+    "h11.tests.test_io::test_ContentLengthReader",
+    "h11.tests.test_io::test_ContentLengthWriter",
+    "h11.tests.test_io::test_Http10Reader",
+    "h11.tests.test_io::test_Http10Writer",
+    "h11.tests.test_io::test__obsolete_line_fold_bytes",
+    "h11.tests.test_io::test_allow_some_garbage_in_cookies",
+    "h11.tests.test_io::test_host_comes_first",
+    "h11.tests.test_io::test_readers_simple",
+    "h11.tests.test_io::test_readers_unusual",
+    "h11.tests.test_io::test_reject_garbage_after_request_line",
+    "h11.tests.test_io::test_reject_garbage_after_response_line",
+    "h11.tests.test_io::test_reject_garbage_in_header_line",
+    "h11.tests.test_io::test_reject_non_vchar_in_path",
+    "h11.tests.test_io::test_writers_simple",
+    "h11.tests.test_io::test_writers_unusual"
+  ],
+  "test_files": [
+    "h11/tests/test_io.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 16,
+  "n_after_pass": 17,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-vqfr-h8mv-ghfj",
+      "summary": "h11 accepts some malformed Chunked-Encoding bodies",
+      "details": "### Impact\n\nA leniency in h11's parsing of line terminators in chunked-coding message bodies can lead to request smuggling vulnerabilities under certain conditions.\n\n### Details\n\nHTTP/1.1 Chunked-Encoding bodies are formatted as a sequence of \"chunks\", each of which consists of:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- `\\r\\n`\n\nIn versions of h11 up to 0.14.0, h11 instead parsed them as:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- any two bytes\n\ni.e. it did not validate that the trailing `\\r\\n` bytes were correct, and if you put 2 bytes of garbage there it would be accepted, instead of correctly rejecting the body as malformed.\n\nBy itself this is harmless. However, suppose you have a proxy or reverse-proxy that tries to analyze HTTP requests, and your proxy has a _different_ bug in parsing Chunked-Encoding, acting as if the format is:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- more bytes of content, as many as it takes until you find a `\\r\\n`\n\nFor example, [pound](https://github.com/graygnuorg/pound/pull/43) had this bug -- it can happen if an implementer uses a generic \"read until end of line\" helper to consumes the trailing `\\r\\n`.\n\nIn this case, h11 and your proxy may both accept the same stream of bytes, but interpret them differently. For example, consider the following HTTP request(s) (assume all line breaks are `\\r\\n`):\n\n```\nGET /one HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n\n5\nAAAAAXX2\n45\n0\n\nGET /two HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n\n0\n```\n\nHere h11 will interpret it as two requests, one with body `AAAAA45` and one with an empty body, while our hypothetical buggy proxy will interpret it as a single request, with body `AAAAXX20\\r\\n\\r\\nGET /two ...`. And any time two HTTP processors both accept the same string of bytes but interpret them differently, you have the conditions for a \"request smuggling\" attack. For example, if `/two` is a dangerous endpoint and the job of the reverse proxy is to stop requests from getting there, then an attacker could use a bytestream like the above to circumvent this protection.\n\nEven worse, if our buggy reverse proxy receives two requests from different users:\n\n```\nGET /one HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n\n5\nAAAAAXX999\n0\n```\n\n```\nGET /two HTTP/1.1\nHost: localhost\nCookie: SESSION_KEY=abcdef...\n```\n\n...it will consider the first request to be complete and valid, and send both on to the h11-based web server over the same socket. The server will then see the two concatenated requests, and interpret them as _one_ request to `/one` whose body includes `/two`'s session key, potentially allowing one user to steal another's credentials.\n\n### Patches\n\nFixed in h11 0.15.0.\n\n### Workarounds\n\nSince exploitation requires the combination of buggy h11 with a buggy (reverse) proxy, fixing either component is sufficient to mitigate this issue.\n\n### Credits\n\nReported by Jeppe Bonde Weikop on 2025-01-09.",
+      "aliases": [
+        "CVE-2025-43859",
+        "PYSEC-2026-348"
+      ],
+      "published": "2025-04-24T16:07:56Z",
+      "modified": "2026-09-10T03:50:24.086696793Z",
+      "severity": "CRITICAL",
+      "cwe_ids": [
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "package": "h11",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.16.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/python-hyper/h11/security/advisories/GHSA-vqfr-h8mv-ghfj"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-43859"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/python-hyper/h11/commit/114803a29ce50116dc47951c690ad4892b1a36ed"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/python-hyper/h11"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-vqfr-h8mv-ghfj",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2026-348",
+          "summary": "h11 accepts some malformed Chunked-Encoding bodies",
+          "details": "### Impact\n\nA leniency in h11's parsing of line terminators in chunked-coding message bodies can lead to request smuggling vulnerabilities under certain conditions.\n \n### Details\n\nHTTP/1.1 Chunked-Encoding bodies are formatted as a sequence of \"chunks\", each of which consists of:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- `\\r\\n`\n\nIn versions of h11 up to 0.14.0, h11 instead parsed them as:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- any two bytes\n \ni.e. it did not validate that the trailing `\\r\\n` bytes were correct, and if you put 2 bytes of garbage there it would be accepted, instead of correctly rejecting the body as malformed.\n\nBy itself this is harmless. However, suppose you have a proxy or reverse-proxy that tries to analyze HTTP requests, and your proxy has a _different_ bug in parsing Chunked-Encoding, acting as if the format is:\n\n- chunk length\n- `\\r\\n`\n- `length` bytes of content\n- more bytes of content, as many as it takes until you find a `\\r\\n`\n\nFor example, [pound](https://github.com/graygnuorg/pound/pull/43) had this bug -- it can happen if an implementer uses a generic \"read until end of line\" helper to consumes the trailing `\\r\\n`.\n\nIn this case, h11 and your proxy may both accept the same stream of bytes, but interpret them differently. For example, consider the following HTTP request(s) (assume all line breaks are `\\r\\n`):\n\n```\nGET /one HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n \n5\nAAAAAXX2\n45\n0\n\nGET /two HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n \n0\n```\n\nHere h11 will interpret it as two requests, one with body `AAAAA45` and one with an empty body, while our hypothetical buggy proxy will interpret it as a single request, with body `AAAAXX20\\r\\n\\r\\nGET /two ...`. And any time two HTTP processors both accept the same string of bytes but interpret them differently, you have the conditions for a \"request smuggling\" attack. For example, if `/two` is a dangerous endpoint and the job of the reverse proxy is to stop requests from getting there, then an attacker could use a bytestream like the above to circumvent this protection.\n\nEven worse, if our buggy reverse proxy receives two requests from different users:\n\n```\nGET /one HTTP/1.1\nHost: localhost\nTransfer-Encoding: chunked\n\n5\nAAAAAXX999\n0\n```\n\n```\nGET /two HTTP/1.1\nHost: localhost\nCookie: SESSION_KEY=abcdef...\n```\n\n...it will consider the first request to be complete and valid, and send both on to the h11-based web server over the same socket. The server will then see the two concatenated requests, and interpret them as _one_ request to `/one` whose body includes `/two`'s session key, potentially allowing one user to steal another's credentials.\n\n### Patches\n\nFixed in h11 0.15.0.\n \n### Workarounds\n\nSince exploitation requires the combination of buggy h11 with a buggy (reverse) proxy, fixing either component is sufficient to mitigate this issue.\n\n### Credits\n\nReported by Jeppe Bonde Weikop on 2025-01-09.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2026-348"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "114803a29ce50116dc47951c690ad4892b1a36ed",
+      "authored_at": "2025-04-23T20:10:16-07:00",
+      "committed_at": "2025-04-23T20:10:16-07:00",
+      "message": "Merge commit from fork\n\nValidate Chunked-Encoding chunk footer",
+      "url": "https://github.com/python-hyper/h11/commit/114803a29ce50116dc47951c690ad4892b1a36ed"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:14:02+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

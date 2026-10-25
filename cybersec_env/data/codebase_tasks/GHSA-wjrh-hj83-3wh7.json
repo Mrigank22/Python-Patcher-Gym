@@ -1,0 +1,210 @@
+{
+  "id": "GHSA-wjrh-hj83-3wh7",
+  "aliases": [
+    "CVE-2025-48383",
+    "PYSEC-2026-1300"
+  ],
+  "cwes": [
+    "CWE-402",
+    "CWE-918"
+  ],
+  "severity": "HIGH",
+  "package": "django-select2",
+  "repo": {
+    "owner": "codingjoe",
+    "name": "django-select2",
+    "url": "https://github.com/codingjoe/django-select2"
+  },
+  "base_commit": "e92e0902caa5976a6132b6d2fc5efbc2eeb0b48c",
+  "fix_commit": "e5f41e6edba004d35f94915ff5e2559f44853412",
+  "python_requires": ">=3.10",
+  "changed_source_files": [
+    "django_select2/forms.py"
+  ],
+  "changed_test_files": [
+    "tests/test_forms.py"
+  ],
+  "source_patch": "diff --git a/django_select2/forms.py b/django_select2/forms.py\nindex 6c5e191..f94a8c1 100644\n--- a/django_select2/forms.py\n+++ b/django_select2/forms.py\n@@ -255,8 +255,6 @@ class HeavySelect2Mixin:\n         \"\"\"\n         super().__init__(attrs, choices)\n \n-        self.uuid = str(uuid.uuid4())\n-        self.field_id = signing.dumps(self.uuid)\n         self.data_view = kwargs.pop(\"data_view\", self.data_view)\n         self.data_url = kwargs.pop(\"data_url\", self.data_url)\n \n@@ -275,6 +273,8 @@ class HeavySelect2Mixin:\n \n     def build_attrs(self, base_attrs, extra_attrs=None):\n         \"\"\"Set select2's AJAX attributes.\"\"\"\n+        self.uuid = str(uuid.uuid4())\n+        self.field_id = signing.dumps(self.uuid)\n         default_attrs = {\n             \"data-ajax--url\": self.get_url(),\n             \"data-ajax--cache\": \"true\",\n",
+  "test_patch": "diff --git a/tests/test_forms.py b/tests/test_forms.py\nindex c42d457..a2b8752 100644\n--- a/tests/test_forms.py\n+++ b/tests/test_forms.py\n@@ -359,6 +359,17 @@ class TestHeavySelect2Mixin(TestSelect2Mixin):\n         widget = self.widget_cls(data_view=\"heavy_data_1\")\n         assert 'data-theme=\"classic\"' in widget.render(\"name\", None)\n \n+    def test_cache_key_leak(self):\n+        bob = self.widget_cls(data_url=\"/test/\")\n+        alice = self.widget_cls(data_url=\"/test/\")\n+        bob.render(\"name\", \"value\")\n+        bob_key_request_1 = bob._get_cache_key()\n+        alice.render(\"name\", \"value\")\n+        assert bob._get_cache_key() != alice._get_cache_key()\n+        bob.render(\"name\", \"value\")\n+        bob_key_request_2 = bob._get_cache_key()\n+        assert bob_key_request_1 != bob_key_request_2\n+\n \n class TestModelSelect2Mixin(TestHeavySelect2Mixin):\n     form = forms.AlbumModelSelect2WidgetForm(initial={\"primary_genre\": 1})\n",
+  "summary": "Django-Select2 Vulnerable to Widget Instance Secret Cache Key Leaking",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `django-select2` has a security vulnerability (CWE-402, CWE-918). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_forms.TestHeavySelect2Mixin::test_cache_key_leak",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_cache_key_leak",
+    "tests.test_forms.TestModelSelect2Mixin::test_cache_key_leak"
+  ],
+  "p2p_tests": [
+    "tests.test_forms.TestHeavySelect2Mixin::test_allow_clear",
+    "tests.test_forms.TestHeavySelect2Mixin::test_can_not_pickle",
+    "tests.test_forms.TestHeavySelect2Mixin::test_data_url",
+    "tests.test_forms.TestHeavySelect2Mixin::test_empty_option",
+    "tests.test_forms.TestHeavySelect2Mixin::test_get_url",
+    "tests.test_forms.TestHeavySelect2Mixin::test_i18n",
+    "tests.test_forms.TestHeavySelect2Mixin::test_initial_data",
+    "tests.test_forms.TestHeavySelect2Mixin::test_initial_form_class",
+    "tests.test_forms.TestHeavySelect2Mixin::test_lang_attr",
+    "tests.test_forms.TestHeavySelect2Mixin::test_many_selected_option",
+    "tests.test_forms.TestHeavySelect2Mixin::test_selected_option",
+    "tests.test_forms.TestHeavySelect2Mixin::test_theme_setting",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_allow_clear",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_can_not_pickle",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_custom_tag_attrs",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_data_url",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_empty_option",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_get_url",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_i18n",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_initial_data",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_initial_form_class",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_lang_attr",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_many_selected_option",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_selected_option",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_tag_attrs",
+    "tests.test_forms.TestHeavySelect2TagWidget::test_theme_setting",
+    "tests.test_forms.TestModelSelect2Mixin::test_ajax_view_registration",
+    "tests.test_forms.TestModelSelect2Mixin::test_allow_clear",
+    "tests.test_forms.TestModelSelect2Mixin::test_can_not_pickle",
+    "tests.test_forms.TestModelSelect2Mixin::test_custom_tag_attrs_ModelSelect2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_custom_tag_attrs_Select2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_custom_to_field_name",
+    "tests.test_forms.TestModelSelect2Mixin::test_data_url",
+    "tests.test_forms.TestModelSelect2Mixin::test_empty_label",
+    "tests.test_forms.TestModelSelect2Mixin::test_empty_option",
+    "tests.test_forms.TestModelSelect2Mixin::test_filter_queryset",
+    "tests.test_forms.TestModelSelect2Mixin::test_filter_queryset__contains",
+    "tests.test_forms.TestModelSelect2Mixin::test_filter_queryset__empty",
+    "tests.test_forms.TestModelSelect2Mixin::test_filter_queryset__multiple_fields",
+    "tests.test_forms.TestModelSelect2Mixin::test_filter_queryset__startswith",
+    "tests.test_forms.TestModelSelect2Mixin::test_get_queryset",
+    "tests.test_forms.TestModelSelect2Mixin::test_get_search_fields",
+    "tests.test_forms.TestModelSelect2Mixin::test_get_url",
+    "tests.test_forms.TestModelSelect2Mixin::test_i18n",
+    "tests.test_forms.TestModelSelect2Mixin::test_initial_data",
+    "tests.test_forms.TestModelSelect2Mixin::test_initial_form_class",
+    "tests.test_forms.TestModelSelect2Mixin::test_label_from_instance_initial",
+    "tests.test_forms.TestModelSelect2Mixin::test_lang_attr",
+    "tests.test_forms.TestModelSelect2Mixin::test_many_selected_option",
+    "tests.test_forms.TestModelSelect2Mixin::test_model_kwarg",
+    "tests.test_forms.TestModelSelect2Mixin::test_queryset_kwarg",
+    "tests.test_forms.TestModelSelect2Mixin::test_render",
+    "tests.test_forms.TestModelSelect2Mixin::test_result_from_instance_ModelSelect2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_selected_option",
+    "tests.test_forms.TestModelSelect2Mixin::test_selected_option_label_from_instance",
+    "tests.test_forms.TestModelSelect2Mixin::test_tag_attrs_HeavySelect2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_tag_attrs_ModelSelect2TagWidget",
+    "tests.test_forms.TestModelSelect2Mixin::test_tag_attrs_ModelSelect2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_tag_attrs_Select2Widget",
+    "tests.test_forms.TestModelSelect2Mixin::test_theme_setting",
+    "tests.test_forms.TestSelect2AdminMixin::test_media",
+    "tests.test_forms.TestSelect2Mixin::test_allow_clear",
+    "tests.test_forms.TestSelect2Mixin::test_data_url",
+    "tests.test_forms.TestSelect2Mixin::test_empty_option",
+    "tests.test_forms.TestSelect2Mixin::test_i18n",
+    "tests.test_forms.TestSelect2Mixin::test_initial_data",
+    "tests.test_forms.TestSelect2Mixin::test_initial_form_class",
+    "tests.test_forms.TestSelect2Mixin::test_theme_setting",
+    "tests.test_forms.TestSelect2MixinSettings::test_css_setting",
+    "tests.test_forms.TestSelect2MixinSettings::test_default_media",
+    "tests.test_forms.TestSelect2MixinSettings::test_empty_css_setting",
+    "tests.test_forms.TestSelect2MixinSettings::test_empty_js_setting",
+    "tests.test_forms.TestSelect2MixinSettings::test_js_setting",
+    "tests.test_forms.TestSelect2MixinSettings::test_multiple_css_setting",
+    "tests.test_forms::test_i18n_media_js_with_country_code_in_locale[HeavySelect2MultipleWidget]",
+    "tests.test_forms::test_i18n_media_js_with_country_code_in_locale[HeavySelect2Widget]",
+    "tests.test_forms::test_i18n_media_js_with_country_code_in_locale[ModelSelect2TagWidget]",
+    "tests.test_forms::test_i18n_media_js_with_country_code_in_locale[ModelSelect2Widget]",
+    "tests.test_forms::test_i18n_media_js_with_country_code_in_locale[Select2Widget]",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2MultipleWidget-'fr-FR'-'fr']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2MultipleWidget-'pt-BR'-'pt-BR']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2MultipleWidget-'sr-Cyrl'-'sr-Cyrl']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2Widget-'fr-FR'-'fr']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2Widget-'pt-BR'-'pt-BR']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[HeavySelect2Widget-'sr-Cyrl'-'sr-Cyrl']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2TagWidget-'fr-FR'-'fr']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2TagWidget-'pt-BR'-'pt-BR']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2TagWidget-'sr-Cyrl'-'sr-Cyrl']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2Widget-'fr-FR'-'fr']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2Widget-'pt-BR'-'pt-BR']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[ModelSelect2Widget-'sr-Cyrl'-'sr-Cyrl']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[Select2Widget-'fr-FR'-'fr']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[Select2Widget-'pt-BR'-'pt-BR']",
+    "tests.test_forms::test_i18n_name_property_with_country_code_in_locale[Select2Widget-'sr-Cyrl'-'sr-Cyrl']"
+  ],
+  "test_files": [
+    "tests/test_forms.py"
+  ],
+  "python": "3.10",
+  "n_before_pass": 94,
+  "n_after_pass": 97,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-wjrh-hj83-3wh7",
+      "summary": "Django-Select2 Vulnerable to Widget Instance Secret Cache Key Leaking",
+      "details": "### Impact\n\nInstances of `HeavySelect2Mixin` subclasses like the `ModelSelect2MultipleWidget` and `ModelSelect2Widget` can secret access tokens across requests. This can allow users to access restricted querysets and restricted data.\n\n### Patches\n\nThe problem has been patched in version 8.4.1 and all following versions.\n\n### Workarounds\n\nThis vulnerability is limited use cases where instances of widget classes are created during app loading (not during a request).\n\nExample of affected code:\n```python\nclass MyForm(forms.ModelForm):\n    class Meta:\n        widgets = {\"my_select_field\": Select2ModelWidget()}\n```\n\nDjango allows you to pass just the widget class (not the instance). This can be used to mitigate the session request leak.\n\nExample of affected code:\n```python\nclass MyForm(forms.ModelForm):\n    class Meta:\n        widgets = {\"my_select_field\": Select2ModelWidget}\n```\n\n\n\n### References\n\nThanks to @neartik for reporting this issue. I will address it later. I had to delete your issue, to avoid exploitation of this security issue.",
+      "aliases": [
+        "CVE-2025-48383",
+        "PYSEC-2026-1300"
+      ],
+      "published": "2025-05-27T18:03:19Z",
+      "modified": "2026-09-10T03:50:24.751328727Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-402",
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "package": "django-select2",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "8.4.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/codingjoe/django-select2/security/advisories/GHSA-wjrh-hj83-3wh7"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-48383"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/codingjoe/django-select2/commit/e5f41e6edba004d35f94915ff5e2559f44853412"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/codingjoe/django-select2"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-wjrh-hj83-3wh7",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "e5f41e6edba004d35f94915ff5e2559f44853412",
+      "authored_at": "2025-05-26T14:52:29+02:00",
+      "committed_at": "2025-05-26T14:52:29+02:00",
+      "message": "Merge commit from fork",
+      "url": "https://github.com/codingjoe/django-select2/commit/e5f41e6edba004d35f94915ff5e2559f44853412"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:45:01+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

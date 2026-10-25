@@ -1,0 +1,135 @@
+{
+  "id": "GHSA-gmj6-6f8f-6699",
+  "aliases": [
+    "CVE-2024-56201",
+    "PYSEC-2026-1472"
+  ],
+  "cwes": [
+    "CWE-150"
+  ],
+  "severity": "MODERATE",
+  "package": "jinja2",
+  "repo": {
+    "owner": "pallets",
+    "name": "jinja",
+    "url": "https://github.com/pallets/jinja"
+  },
+  "base_commit": "48b0687e05a5466a91cd5812d604fa37ad0943b4",
+  "fix_commit": "767b23617628419ae3709ccfb02f9602ae9fe51f",
+  "python_requires": ">=3.7",
+  "changed_source_files": [
+    "src/jinja2/compiler.py"
+  ],
+  "changed_test_files": [
+    "tests/test_compile.py"
+  ],
+  "source_patch": "diff --git a/src/jinja2/compiler.py b/src/jinja2/compiler.py\nindex 074e9b1..23295ec 100644\n--- a/src/jinja2/compiler.py\n+++ b/src/jinja2/compiler.py\n@@ -1141,9 +1141,14 @@ class CodeGenerator(NodeVisitor):\n             )\n             self.writeline(f\"if {frame.symbols.ref(alias)} is missing:\")\n             self.indent()\n+            # The position will contain the template name, and will be formatted\n+            # into a string that will be compiled into an f-string. Curly braces\n+            # in the name must be replaced with escapes so that they will not be\n+            # executed as part of the f-string.\n+            position = self.position(node).replace(\"{\", \"{{\").replace(\"}\", \"}}\")\n             message = (\n                 \"the template {included_template.__name__!r}\"\n-                f\" (imported on {self.position(node)})\"\n+                f\" (imported on {position})\"\n                 f\" does not export the requested name {name!r}\"\n             )\n             self.writeline(\n",
+  "test_patch": "diff --git a/tests/test_compile.py b/tests/test_compile.py\nindex 42efa59..e1a5391 100644\n--- a/tests/test_compile.py\n+++ b/tests/test_compile.py\n@@ -1,6 +1,9 @@\n import os\n import re\n \n+import pytest\n+\n+from jinja2 import UndefinedError\n from jinja2.environment import Environment\n from jinja2.loaders import DictLoader\n \n@@ -87,3 +90,19 @@ def test_block_set_vars_unpacking_deterministic(tmp_path):\n         content,\n     )[:10]\n     assert found == expect\n+\n+\n+def test_undefined_import_curly_name():\n+    env = Environment(\n+        loader=DictLoader(\n+            {\n+                \"{bad}\": \"{% from 'macro' import m %}{{ m() }}\",\n+                \"macro\": \"\",\n+            }\n+        )\n+    )\n+\n+    # Must not raise `NameError: 'bad' is not defined`, as that would indicate\n+    # that `{bad}` is being interpreted as an f-string. It must be escaped.\n+    with pytest.raises(UndefinedError):\n+        env.get_template(\"{bad}\").render()\n",
+  "summary": "Jinja has a sandbox breakout through malicious filenames",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `jinja2` has a security vulnerability (CWE-150). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_compile::test_undefined_import_curly_name"
+  ],
+  "p2p_tests": [
+    "tests.test_compile::test_block_set_vars_unpacking_deterministic",
+    "tests.test_compile::test_filters_deterministic",
+    "tests.test_compile::test_import_as_with_context_deterministic",
+    "tests.test_compile::test_loop_set_vars_unpacking_deterministic",
+    "tests.test_compile::test_top_level_set_vars_unpacking_deterministic"
+  ],
+  "test_files": [
+    "tests/test_compile.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 5,
+  "n_after_pass": 6,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-gmj6-6f8f-6699",
+      "summary": "Jinja has a sandbox breakout through malicious filenames",
+      "details": "A bug in the Jinja compiler allows an attacker that controls both the content and filename of a template to execute arbitrary Python code, regardless of if Jinja's sandbox is used.\n\nTo exploit the vulnerability, an attacker needs to control both the filename and the contents of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates where the template author can also choose the template filename.",
+      "aliases": [
+        "CVE-2024-56201",
+        "PYSEC-2026-1472"
+      ],
+      "published": "2024-12-23T17:54:12Z",
+      "modified": "2026-09-10T03:50:56.152882717Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-150"
+      ],
+      "affected": [
+        {
+          "package": "jinja2",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "3.0.0"
+                },
+                {
+                  "fixed": "3.1.5"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/security/advisories/GHSA-gmj6-6f8f-6699"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-56201"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/issues/1792"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/commit/767b23617628419ae3709ccfb02f9602ae9fe51f"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/pallets/jinja"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/jinja/releases/tag/3.1.5"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-gmj6-6f8f-6699",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "767b23617628419ae3709ccfb02f9602ae9fe51f",
+      "authored_at": "2024-12-19T18:10:28-08:00",
+      "committed_at": "2024-12-19T18:10:28-08:00",
+      "message": "fix f-string syntax error in code generation (#1852)",
+      "url": "https://github.com/pallets/jinja/commit/767b23617628419ae3709ccfb02f9602ae9fe51f"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 1852,
+        "url": "https://github.com/pallets/jinja/pull/1852",
+        "title": "fix f-string syntax error in code generation",
+        "body": "I've fixed a bug that caused an f-string syntax error in the template compilation when a template, that imports a macro, contains curly braces in its name. The bug was caused by the code-generation of an f-string in which the template name is inserted, and when the template name contains curly braces and the generated code gets executed, Python treats the curly braces as f-string braces. I've changed the code-generation to construct the string differently, such that the affected substring is not an f-string. Instead, the different substrings are concatenated using the `+` operator.\r\n\r\n<!--\r\nLink to relevant issues or previous PRs, one per line. Use \"fixes\" to automatically close an issue.\r\n-->\r\n\r\n- fixes #1792\r\n\r\n<!--\r\nEnsure each step in CONTRIBUTING.rst is complete by adding an \"x\" to each box below.\r\n\r\nIf only docs were changed, these aren't relevant and can be removed.\r\n-->\r\n\r\nChecklist:\r\n\r\n- [x] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [ ] Add or update relevant docs, in the docs folder and in code.\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [ ] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n",
+        "merged_at": "2024-12-20T02:10:29Z",
+        "merge_commit_sha": "767b23617628419ae3709ccfb02f9602ae9fe51f"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T00:13:03+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

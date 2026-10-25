@@ -1,0 +1,121 @@
+{
+  "id": "PYSEC-2017-19",
+  "aliases": [
+    "CVE-2017-16615",
+    "GHSA-xpm8-98mx-h4c5"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "mlalchemy",
+  "repo": {
+    "owner": "thanethomson",
+    "name": "MLAlchemy",
+    "url": "https://github.com/thanethomson/MLAlchemy"
+  },
+  "base_commit": "5736ec6ce1fbc9e5bd732204f04c8c01ab34415f",
+  "fix_commit": "bc795757febdcce430d89f9d08f75c32d6989d3c",
+  "python_requires": "",
+  "changed_source_files": [
+    "mlalchemy/parser.py"
+  ],
+  "changed_test_files": [
+    "tests/test_yaml_security.py"
+  ],
+  "source_patch": "diff --git a/mlalchemy/parser.py b/mlalchemy/parser.py\nindex 44f2711..faeecdd 100644\n--- a/mlalchemy/parser.py\n+++ b/mlalchemy/parser.py\n@@ -33,7 +33,7 @@ def parse_yaml_query(yaml_content):\n         On success, the processed MLQuery object.\n     \"\"\"\n     logger.debug(\"Attempting to parse YAML content:\\n%s\" % yaml_content)\n-    return parse_query(yaml.load(yaml_content))\n+    return parse_query(yaml.safe_load(yaml_content))\n \n \n def parse_json_query(json_content):\n",
+  "test_patch": "diff --git a/tests/test_yaml_security.py b/tests/test_yaml_security.py\nnew file mode 100644\nindex 0000000..18d9337\n--- /dev/null\n+++ b/tests/test_yaml_security.py\n@@ -0,0 +1,21 @@\n+# -*- coding: utf-8 -*-\n+\n+from __future__ import unicode_literals\n+\n+import unittest\n+import yaml\n+\n+from mlalchemy import *\n+from mlalchemy.testing import MLAlchemyTestCase\n+\n+\n+class TestYamlSecurity(MLAlchemyTestCase):\n+\n+    def test_basic_yaml_security(self):\n+        with self.assertRaises(yaml.constructor.ConstructorError):\n+            parse_yaml_query('!!python/object/apply:os.system [\"echo Hello\"]')\n+\n+\n+if __name__ == \"__main__\":\n+    unittest.main()\n+\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `mlalchemy` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_yaml_security.TestYamlSecurity::test_basic_yaml_security"
+  ],
+  "p2p_tests": [],
+  "test_files": [
+    "tests/test_yaml_security.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 0,
+  "n_after_pass": 1,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2017-19",
+      "summary": "",
+      "details": "An exploitable vulnerability exists in the YAML parsing functionality in the parse_yaml_query method in parser.py in MLAlchemy before 0.2.2. When processing YAML-Based queries for data, a YAML parser can execute arbitrary Python commands resulting in command execution because load is used where safe_load should have been used. An attacker can insert Python into loaded YAML to trigger this vulnerability.",
+      "aliases": [
+        "CVE-2017-16615",
+        "GHSA-xpm8-98mx-h4c5"
+      ],
+      "published": "2017-11-08T03:29:00Z",
+      "modified": "2023-11-08T03:59:13.061322Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "mlalchemy",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/thanethomson/MLAlchemy",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "bc795757febdcce430d89f9d08f75c32d6989d3c"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.2.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "REPORT",
+          "url": "https://github.com/thanethomson/MLAlchemy/issues/1"
+        },
+        {
+          "type": "ARTICLE",
+          "url": "https://joel-malwarebenchmark.github.io/blog/2017/11/08/cve-2017-16615-critical-restful-web-applications-vulnerability/"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/thanethomson/MLAlchemy/commit/bc795757febdcce430d89f9d08f75c32d6989d3c"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-xpm8-98mx-h4c5"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2017-19",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "bc795757febdcce430d89f9d08f75c32d6989d3c",
+      "authored_at": "2017-11-07T13:33:54+02:00",
+      "committed_at": "2017-11-07T13:33:54+02:00",
+      "message": "attempting to fix security flaw (issue #1)",
+      "url": "https://github.com/thanethomson/MLAlchemy/commit/bc795757febdcce430d89f9d08f75c32d6989d3c"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:40:41+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

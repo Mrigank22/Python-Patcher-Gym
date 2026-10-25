@@ -1,0 +1,220 @@
+{
+  "id": "GHSA-4fjv-pmhg-3rfg",
+  "aliases": [
+    "CVE-2020-26244",
+    "PYSEC-2020-69"
+  ],
+  "cwes": [
+    "CWE-325",
+    "CWE-347"
+  ],
+  "severity": "HIGH",
+  "package": "oic",
+  "repo": {
+    "owner": "OpenIDC",
+    "name": "pyoidc",
+    "url": "https://github.com/OpenIDC/pyoidc"
+  },
+  "base_commit": "6ac4384c0ce3d65e3a4215b20426151799573a74",
+  "fix_commit": "62f8d753fa17c8b1f29f8be639cf0b33afb02498",
+  "python_requires": "~=3.5",
+  "changed_source_files": [
+    "src/oic/oic/__init__.py",
+    "src/oic/oic/consumer.py",
+    "src/oic/oic/message.py"
+  ],
+  "changed_test_files": [
+    "tests/test_oic_consumer.py",
+    "tests/test_oic_consumer_logout.py",
+    "tests/test_oic_message.py",
+    "tests/test_oic_provider.py"
+  ],
+  "source_patch": "diff --git a/src/oic/oic/__init__.py b/src/oic/oic/__init__.py\nindex 51cb8d2..1264085 100644\n--- a/src/oic/oic/__init__.py\n+++ b/src/oic/oic/__init__.py\n@@ -44,6 +44,7 @@ from oic.oauth2.exception import ParseError\n from oic.oauth2.message import ErrorResponse\n from oic.oauth2.message import Message\n from oic.oauth2.message import MessageFactory\n+from oic.oauth2.message import WrongSigningAlgorithm\n from oic.oauth2.util import get_or_post\n from oic.oic.message import SCOPE2CLAIMS\n from oic.oic.message import AccessTokenResponse\n@@ -1432,7 +1433,13 @@ class Client(oauth2.Client):\n         return resp\n \n     def _verify_id_token(\n-        self, id_token, nonce=\"\", acr_values=None, auth_time=0, max_age=0\n+        self,\n+        id_token,\n+        nonce=\"\",\n+        acr_values=None,\n+        auth_time=0,\n+        max_age=0,\n+        response_type=\"\",\n     ):\n         \"\"\"\n         Verify IdToken.\n@@ -1465,6 +1472,11 @@ class Client(oauth2.Client):\n         if _now > id_token[\"exp\"]:\n             raise OtherError(\"Passed best before date\")\n \n+        if response_type != [\"code\"] and id_token.jws_header[\"alg\"] == \"none\":\n+            raise WrongSigningAlgorithm(\n+                \"none is not allowed outside Authorization Flow.\"\n+            )\n+\n         if (\n             self.id_token_max_age\n             and _now > int(id_token[\"iat\"]) + self.id_token_max_age\n@@ -1491,7 +1503,7 @@ class Client(oauth2.Client):\n         except KeyError:\n             pass\n \n-        for param in [\"acr_values\", \"max_age\"]:\n+        for param in [\"acr_values\", \"max_age\", \"response_type\"]:\n             try:\n                 kwa[param] = authn_req[param]\n             except KeyError:\ndiff --git a/src/oic/oic/consumer.py b/src/oic/oic/consumer.py\nindex 1edfad2..33488ea 100644\n--- a/src/oic/oic/consumer.py\n+++ b/src/oic/oic/consumer.py\n@@ -3,6 +3,8 @@ import os.path\n import warnings\n from typing import Dict\n from typing import Optional\n+from typing import Tuple\n+from typing import Union\n \n from oic import rndstr\n from oic.exception import AuthzError\n@@ -22,6 +24,7 @@ from oic.oic.message import AuthorizationResponse\n from oic.oic.message import BackChannelLogoutRequest\n from oic.oic.message import Claims\n from oic.oic.message import ClaimsRequest\n+from oic.oic.message import IdToken\n from oic.utils import http_util\n from oic.utils.sanitize import sanitize\n from oic.utils.sdb import DictSessionBackend\n@@ -340,6 +343,7 @@ class Consumer(Client):\n         if self.debug:\n             _log_info(\"Redirecting to: %s\" % location)\n \n+        self.authz_req[areq[\"state\"]] = areq\n         return sid, location\n \n     def _parse_authz(self, query=\"\", **kwargs):\n@@ -364,7 +368,16 @@ class Consumer(Client):\n         self.redirect_uris = [self.sdb[_state][\"redirect_uris\"]]\n         return aresp, _state\n \n-    def parse_authz(self, query=\"\", **kwargs):\n+    def parse_authz(\n+        self, query=\"\", **kwargs\n+    ) -> Union[\n+        http_util.BadRequest,\n+        Tuple[\n+            Optional[AuthorizationResponse],\n+            Optional[AccessTokenResponse],\n+            Optional[IdToken],\n+        ],\n+    ]:\n         \"\"\"\n         Parse authorization response from server.\n \n@@ -375,17 +388,20 @@ class Consumer(Client):\n         [\"id_token\"]\n         [\"id_token\", \"token\"]\n         [\"token\"]\n-\n-        :return: A AccessTokenResponse instance\n         \"\"\"\n         _log_info = logger.info\n         logger.debug(\"- authorization -\")\n \n+        # FIXME: This shouldn't be here... We should rather raise a sepcific Client error\n+        # That would simplify the return value of this function\n+        # and drop bunch of assertions from tests added in this commit.\n         if not query:\n             return http_util.BadRequest(\"Missing query\")\n \n         _log_info(\"response: %s\" % sanitize(query))\n \n+        if \"algs\" not in kwargs:\n+            kwargs[\"algs\"] = self.sign_enc_algs(\"id_token\")\n         if \"code\" in self.consumer_config[\"response_type\"]:\n             aresp, _state = self._parse_authz(query, **kwargs)\n \n@@ -410,9 +426,10 @@ class Consumer(Client):\n                 except KeyError:\n                     pass\n \n-            return aresp, atr, idt\n         elif \"token\" in self.consumer_config[\"response_type\"]:  # implicit flow\n             _log_info(\"Expect Access Token Response\")\n+            aresp = None\n+            _state = None\n             atr = self.parse_response(\n                 AccessTokenResponse,\n                 info=query,\n@@ -423,8 +440,8 @@ class Consumer(Client):\n             if isinstance(atr, ErrorResponse):\n                 raise TokenError(atr.get(\"error\"), atr)\n \n-            idt = None\n-            return None, atr, idt\n+            idt = atr.get(\"id_token\")\n+\n         else:  # only id_token\n             aresp, _state = self._parse_authz(query, **kwargs)\n \n@@ -437,8 +454,13 @@ class Consumer(Client):\n                     session_update(self.sso_db, _state, \"smid\", idt[\"sid\"])\n                 except KeyError:\n                     pass\n+            # Null the aresp as only id_token should be returned\n+            aresp = atr = None\n \n-            return None, None, idt\n+        # Verify the IdToken if it was present\n+        if idt is not None:\n+            self.verify_id_token(idt, self.authz_req.get(_state or atr[\"state\"]))\n+        return aresp, atr, idt\n \n     def complete(self, state):\n         \"\"\"\ndiff --git a/src/oic/oic/message.py b/src/oic/oic/message.py\nindex 525fcc2..c719488 100644\n--- a/src/oic/oic/message.py\n+++ b/src/oic/oic/message.py\n@@ -313,17 +313,19 @@ def verify_id_token(instance, check_hash=False, **kwargs):\n \n     if check_hash:\n         _alg = idt.jws_header[\"alg\"]\n-        # What if _alg == 'none'\n-\n-        hfunc = \"HS\" + _alg[-3:]\n+        if _alg != \"none\":\n+            hfunc = \"HS\" + _alg[-3:]\n+        else:\n+            # This is allowed only for `code` and it needs to be checked by a Client\n+            hfunc = None\n \n-        if \"access_token\" in instance:\n+        if \"access_token\" in instance and hfunc is not None:\n             if \"at_hash\" not in idt:\n                 raise MissingRequiredAttribute(\"Missing at_hash property\", idt)\n             if idt[\"at_hash\"] != jws.left_hash(instance[\"access_token\"], hfunc):\n                 raise AtHashError(\"Failed to verify access_token hash\", idt)\n \n-        if \"code\" in instance:\n+        if \"code\" in instance and hfunc is not None:\n             if \"c_hash\" not in idt:\n                 raise MissingRequiredAttribute(\"Missing c_hash property\", idt)\n             if idt[\"c_hash\"] != jws.left_hash(instance[\"code\"], hfunc):\n@@ -780,6 +782,11 @@ class IdToken(OpenIDSchema):\n         else:\n             if (_iat + _storage_time) < (_now - _skew):\n                 raise IATError(\"Issued too long ago\")\n+            if _now < (_iat - _skew):\n+                raise IATError(\"Issued in the future\")\n+\n+        if _exp < _iat:\n+            raise EXPError(\"Invalid expiration time\")\n \n         return True\n \n",
+  "test_patch": "diff --git a/tests/test_oic_consumer.py b/tests/test_oic_consumer.py\nindex 27e3fb2..36a13e2 100644\n--- a/tests/test_oic_consumer.py\n+++ b/tests/test_oic_consumer.py\n@@ -10,12 +10,14 @@ from jwkest import BadSignature\n from jwkest.jwk import SYMKey\n \n from oic.oauth2.message import MissingSigningKey\n+from oic.oauth2.message import WrongSigningAlgorithm\n from oic.oic import DEF_SIGN_ALG\n from oic.oic import Server\n from oic.oic import response_types_to_grant_types\n from oic.oic.consumer import IGNORE\n from oic.oic.consumer import Consumer\n from oic.oic.consumer import clean_response\n+from oic.oic.message import AccessTokenRequest\n from oic.oic.message import AccessTokenResponse\n from oic.oic.message import AuthorizationResponse\n from oic.oic.message import IdToken\n@@ -147,6 +149,9 @@ class TestOICConsumer:\n         self.consumer.userinfo_endpoint = \"https://example.com/userinfo\"  # type: ignore\n         self.consumer.client_secret = \"hemlig\"\n         self.consumer.secret_type = \"basic\"\n+        self.consumer.provider_info = ProviderConfigurationResponse(\n+            issuer=\"https://example.com\"\n+        )  # abs min\n \n     def test_backup_keys(self):\n         keys = self.consumer.__dict__.keys()\n@@ -326,6 +331,7 @@ class TestOICConsumer:\n         self.consumer._backup(_state)\n \n         part = self.consumer.parse_authz(query=result.headers[\"location\"])\n+        assert isinstance(part, tuple)\n         atr = part[0]\n         assert part[1] is None\n         assert part[2] is None\n@@ -359,6 +365,7 @@ class TestOICConsumer:\n             )\n \n         part = self.consumer.parse_authz(query=result.headers[\"location\"])\n+        assert isinstance(part, tuple)\n         assert part[0] is None\n         atr = part[1]\n         assert part[2] is None\n@@ -440,6 +447,7 @@ class TestOICConsumer:\n \n         parsed = urlparse(result.headers[\"location\"])\n         part = self.consumer.parse_authz(query=parsed.query)\n+        assert isinstance(part, tuple)\n         auth = part[0]\n         acc = part[1]\n         assert part[2] is None\n@@ -456,8 +464,67 @@ class TestOICConsumer:\n         _state = \"state0\"\n         self.consumer.consumer_config[\"response_type\"] = [\"id_token\", \"token\"]\n         self.consumer.registration_response = RegistrationResponse(\n-            id_token_signed_response_alg=\"RS256\"\n+            id_token_signed_response_alg=\"HS256\"\n+        )\n+        self.consumer.authz_req = {}  # Store AuthzReq with state as key\n+\n+        args = {\n+            \"client_id\": self.consumer.client_id,\n+            \"response_type\": self.consumer.consumer_config[\"response_type\"],\n+            \"scope\": [\"openid\"],\n+            \"nonce\": \"nonce\",\n+        }\n+        token = IdToken(\n+            iss=\"https://example.com\",\n+            aud=\"client_1\",\n+            sub=\"some_sub\",\n+            exp=1565348600,\n+            iat=1565348300,\n+            nonce=\"nonce\",\n+        )\n+        location = (\n+            \"https://example.com/cb?state=state0&access_token=token&token_type=bearer&\"\n+            \"scope=openid&id_token={}\".format(\n+                token.to_jwt(key=[SYMKey(key=\"hemlig\")], algorithm=\"HS256\")\n+            )\n+        )\n+        with responses.RequestsMock() as rsps:\n+            rsps.add(\n+                responses.GET,\n+                \"https://example.com/authorization\",\n+                status=302,\n+                headers={\"location\": location},\n+            )\n+            result = self.consumer.do_authorization_request(\n+                state=_state, request_args=args\n+            )\n+            query = parse_qs(urlparse(result.request.url).query)\n+            assert query[\"client_id\"] == [\"client_1\"]\n+            assert query[\"scope\"] == [\"openid\"]\n+            assert query[\"response_type\"] == [\"id_token token\"]\n+            assert query[\"state\"] == [\"state0\"]\n+            assert query[\"nonce\"] == [\"nonce\"]\n+            assert query[\"redirect_uri\"] == [\"https://example.com/cb\"]\n+\n+        parsed = urlparse(result.headers[\"location\"])\n+\n+        with freeze_time(\"2019-08-09 11:00:00\"):\n+            part = self.consumer.parse_authz(query=parsed.query)\n+        assert isinstance(part, tuple)\n+        auth = part[0]\n+        atr = part[1]\n+        idt = part[2]\n+\n+        assert auth is None\n+        assert isinstance(atr, AccessTokenResponse)\n+        assert _eq(\n+            atr.keys(), [\"access_token\", \"id_token\", \"token_type\", \"state\", \"scope\"]\n         )\n+        assert isinstance(idt, IdToken)\n+\n+    def test_complete_auth_token_idtoken_no_alg_config(self):\n+        _state = \"state0\"\n+        self.consumer.consumer_config[\"response_type\"] = [\"id_token\", \"token\"]\n         self.consumer.provider_info = ProviderConfigurationResponse(\n             issuer=\"https://example.com\"\n         )  # abs min\n@@ -480,7 +547,7 @@ class TestOICConsumer:\n         location = (\n             \"https://example.com/cb?state=state0&access_token=token&token_type=bearer&\"\n             \"scope=openid&id_token={}\".format(\n-                token.to_jwt(key=KC_RSA.keys(), algorithm=\"RS256\")\n+                token.to_jwt(key=[SYMKey(key=\"hemlig\")], algorithm=\"HS256\")\n             )\n         )\n         with responses.RequestsMock() as rsps:\n@@ -504,23 +571,196 @@ class TestOICConsumer:\n         parsed = urlparse(result.headers[\"location\"])\n \n         with freeze_time(\"2019-08-09 11:00:00\"):\n-            part = self.consumer.parse_authz(\n-                query=parsed.query, algs=self.consumer.sign_enc_algs(\"id_token\")\n-            )\n+            part = self.consumer.parse_authz(query=parsed.query, algs={\"sign\": \"HS256\"})\n+        assert isinstance(part, tuple)\n         auth = part[0]\n         atr = part[1]\n-        assert part[2] is None\n+        idt = part[2]\n \n         assert auth is None\n         assert isinstance(atr, AccessTokenResponse)\n         assert _eq(\n             atr.keys(), [\"access_token\", \"id_token\", \"token_type\", \"state\", \"scope\"]\n         )\n+        assert isinstance(idt, IdToken)\n+\n+    def test_complete_auth_token_idtoken_none_cipher_code(self):\n+        _state = \"state0\"\n+        self.consumer.consumer_config[\"response_type\"] = [\"code\"]\n+        self.consumer.registration_response = RegistrationResponse(\n+            id_token_signed_response_alg=\"none\"\n+        )\n+        self.consumer.provider_info = ProviderConfigurationResponse(\n+            issuer=\"https://example.com\"\n+        )  # abs min\n+        self.consumer.authz_req = {}  # Store AuthzReq with state as key\n+        self.consumer.sdb[_state] = {\"redirect_uris\": []}\n+\n+        args = {\n+            \"client_id\": self.consumer.client_id,\n+            \"response_type\": self.consumer.consumer_config[\"response_type\"],\n+            \"scope\": [\"openid\"],\n+            \"nonce\": \"nonce\",\n+        }\n+        token = IdToken(\n+            iss=\"https://example.com\",\n+            aud=\"client_1\",\n+            sub=\"some_sub\",\n+            exp=1565348600,\n+            iat=1565348300,\n+            nonce=\"nonce\",\n+            at_hash=\"aaa\",\n+        )\n+        # Downgrade the algorithm to `none`\n+        location = (\n+            \"https://example.com/cb?state=state0&access_token=token&token_type=bearer&\"\n+            \"scope=openid&id_token={}\".format(\n+                token.to_jwt(key=KC_RSA.keys(), algorithm=\"none\")\n+            )\n+        )\n+        with responses.RequestsMock() as rsps:\n+            rsps.add(\n+                responses.GET,\n+                \"https://example.com/authorization\",\n+                status=302,\n+                headers={\"location\": location},\n+            )\n+            result = self.consumer.do_authorization_request(\n+                state=_state, request_args=args\n+            )\n+            query = parse_qs(urlparse(result.request.url).query)\n+            assert query[\"client_id\"] == [\"client_1\"]\n+            assert query[\"scope\"] == [\"openid\"]\n+            assert query[\"response_type\"] == [\"code\"]\n+            assert query[\"state\"] == [\"state0\"]\n+            assert query[\"nonce\"] == [\"nonce\"]\n+            assert query[\"redirect_uri\"] == [\"https://example.com/cb\"]\n+\n+        parsed = urlparse(result.headers[\"location\"])\n+\n+        with freeze_time(\"2019-08-09 11:00:00\"):\n+            part = self.consumer.parse_authz(query=parsed.query)\n+        assert isinstance(part, tuple)\n+        auth = part[0]\n+        atr = part[1]\n+        idt = part[2]\n+\n+        assert isinstance(auth, AuthorizationResponse)\n+        assert isinstance(atr, AccessTokenResponse)\n+        assert _eq(\n+            atr.keys(), [\"access_token\", \"id_token\", \"token_type\", \"state\", \"scope\"]\n+        )\n+        assert isinstance(idt, IdToken)\n+\n+    def test_complete_auth_token_idtoken_none_cipher_token(self):\n+        _state = \"state0\"\n+        self.consumer.consumer_config[\"response_type\"] = [\"token\"]\n+        self.consumer.registration_response = RegistrationResponse(\n+            id_token_signed_response_alg=\"none\"\n+        )\n+        self.consumer.provider_info = ProviderConfigurationResponse(\n+            issuer=\"https://example.com\"\n+        )  # abs min\n+        self.consumer.authz_req = {}  # Store AuthzReq with state as key\n+        self.consumer.sdb[_state] = {\"redirect_uris\": []}\n+\n+        args = {\n+            \"client_id\": self.consumer.client_id,\n+            \"response_type\": self.consumer.consumer_config[\"response_type\"],\n+            \"scope\": [\"openid\"],\n+            \"nonce\": \"nonce\",\n+        }\n+        token = IdToken(\n+            iss=\"https://example.com\",\n+            aud=\"client_1\",\n+            sub=\"some_sub\",\n+            exp=1565348600,\n+            iat=1565348300,\n+            nonce=\"nonce\",\n+        )\n+        # Downgrade the algorithm to `none`\n+        location = (\n+            \"https://example.com/cb?state=state0&access_token=token&token_type=bearer&\"\n+            \"scope=openid&id_token={}\".format(\n+                token.to_jwt(key=KC_RSA.keys(), algorithm=\"none\")\n+            )\n+        )\n+        with responses.RequestsMock() as rsps:\n+            rsps.add(\n+                responses.GET,\n+                \"https://example.com/authorization\",\n+                status=302,\n+                headers={\"location\": location},\n+            )\n+            result = self.consumer.do_authorization_request(\n+                state=_state, request_args=args\n+            )\n+            query = parse_qs(urlparse(result.request.url).query)\n+            assert query[\"client_id\"] == [\"client_1\"]\n+            assert query[\"scope\"] == [\"openid\"]\n+            assert query[\"response_type\"] == [\"token\"]\n+            assert query[\"state\"] == [\"state0\"]\n+            assert query[\"nonce\"] == [\"nonce\"]\n+            assert query[\"redirect_uri\"] == [\"https://example.com/cb\"]\n+\n+        parsed = urlparse(result.headers[\"location\"])\n \n         with freeze_time(\"2019-08-09 11:00:00\"):\n-            self.consumer.verify_id_token(\n-                atr[\"id_token\"], self.consumer.authz_req[atr[\"state\"]]\n+            with pytest.raises(WrongSigningAlgorithm):\n+                self.consumer.parse_authz(query=parsed.query)\n+\n+    def test_complete_auth_token_idtoken_cipher_downgrade(self):\n+        _state = \"state0\"\n+        self.consumer.consumer_config[\"response_type\"] = [\"id_token\", \"token\"]\n+        self.consumer.provider_info = ProviderConfigurationResponse(\n+            issuer=\"https://example.com\"\n+        )  # abs min\n+        self.consumer.authz_req = {}  # Store AuthzReq with state as key\n+\n+        args = {\n+            \"client_id\": self.consumer.client_id,\n+            \"response_type\": self.consumer.consumer_config[\"response_type\"],\n+            \"scope\": [\"openid\"],\n+            \"nonce\": \"nonce\",\n+        }\n+        token = IdToken(\n+            iss=\"https://example.com\",\n+            aud=\"client_1\",\n+            sub=\"some_sub\",\n+            exp=1565348600,\n+            iat=1565348300,\n+            nonce=\"nonce\",\n+        )\n+        # Downgrade the algorithm to `none`\n+        location = (\n+            \"https://example.com/cb?state=state0&access_token=token&token_type=bearer&\"\n+            \"scope=openid&id_token={}\".format(\n+                token.to_jwt(key=KC_RSA.keys(), algorithm=\"none\")\n+            )\n+        )\n+        with responses.RequestsMock() as rsps:\n+            rsps.add(\n+                responses.GET,\n+                \"https://example.com/authorization\",\n+                status=302,\n+                headers={\"location\": location},\n+            )\n+            result = self.consumer.do_authorization_request(\n+                state=_state, request_args=args\n             )\n+            query = parse_qs(urlparse(result.request.url).query)\n+            assert query[\"client_id\"] == [\"client_1\"]\n+            assert query[\"scope\"] == [\"openid\"]\n+            assert query[\"response_type\"] == [\"id_token token\"]\n+            assert query[\"state\"] == [\"state0\"]\n+            assert query[\"nonce\"] == [\"nonce\"]\n+            assert query[\"redirect_uri\"] == [\"https://example.com/cb\"]\n+\n+        parsed = urlparse(result.headers[\"location\"])\n+\n+        with freeze_time(\"2019-08-09 11:00:00\"):\n+            with pytest.raises(WrongSigningAlgorithm):\n+                self.consumer.parse_authz(query=parsed.query)\n \n     def test_userinfo(self):\n         _state = \"state0\"\n@@ -920,6 +1160,7 @@ class TestOICConsumer:\n         self.consumer.sdb[_state] = {\"redirect_uris\": [\"https://example.org/cb\"]}\n         resp = AuthorizationResponse(id_token=_signed_jwt, state=_state)\n         self.consumer.consumer_config[\"response_type\"] = [\"id_token\"]\n+        self.consumer.authz_req[_state] = AccessTokenRequest(nonce=\"KUEYfRM2VzKDaaKD\")\n         self.consumer.parse_authz(resp.to_urlencoded())\n         assert self.consumer.sso_db[\"state\"][\"smid\"] == smid\n         assert session_get(self.consumer.sso_db, \"smid\", smid) == [_state]\ndiff --git a/tests/test_oic_consumer_logout.py b/tests/test_oic_consumer_logout.py\nindex fdac474..4b8e334 100644\n--- a/tests/test_oic_consumer_logout.py\n+++ b/tests/test_oic_consumer_logout.py\n@@ -159,13 +159,16 @@ class TestOICConsumerLogout:\n             \"openid\", \"code\", path=\"https://example.com\"\n         )\n         resp = self.provider.authorization_endpoint(request=request_location)\n-        aresp = self.consumer.parse_authz(resp.message)\n+        part = self.consumer.parse_authz(resp.message)\n+        assert isinstance(part, tuple)\n+        aresp = part[0]\n+        assert aresp\n \n         assert self.consumer.sdb[sid][\"issuer\"] == self.provider.baseurl\n \n         # Simulate an accesstoken request\n         areq = AccessTokenRequest(\n-            code=aresp[0][\"code\"],\n+            code=aresp[\"code\"],\n             client_id=CLIENT_ID,\n             redirect_uri=\"http://example.com/authz\",\n             client_secret=self.consumer.client_secret,\n@@ -228,13 +231,16 @@ class TestOICConsumerLogout:\n             \"openid\", \"code\", path=\"https://example.com\"\n         )\n         resp = self.provider.authorization_endpoint(request=request_location)\n-        aresp = self.consumer.parse_authz(resp.message)\n+        part = self.consumer.parse_authz(resp.message)\n+        assert isinstance(part, tuple)\n+        aresp = part[0]\n+        assert aresp\n \n         assert self.consumer.sdb[sid][\"issuer\"] == self.provider.baseurl\n \n         # Simulate an accesstoken request\n         areq = AccessTokenRequest(\n-            code=aresp[0][\"code\"],\n+            code=aresp[\"code\"],\n             client_id=CLIENT_ID,\n             redirect_uri=\"http://example.com/authz\",\n             client_secret=self.consumer.client_secret,\n@@ -308,13 +314,16 @@ class TestOICConsumerLogout:\n             \"openid\", \"code\", path=\"https://example.com\"\n         )\n         resp = self.provider.authorization_endpoint(request=request_location)\n-        aresp = _consumer.parse_authz(resp.message)\n+        part = _consumer.parse_authz(resp.message)\n+        assert isinstance(part, tuple)\n+        aresp = part[0]\n+        assert aresp\n \n         assert _consumer.sdb[sid][\"issuer\"] == self.provider.baseurl\n \n         # Simulate an accesstoken request\n         areq = AccessTokenRequest(\n-            code=aresp[0][\"code\"],\n+            code=aresp[\"code\"],\n             client_id=CLIENT_ID,\n             redirect_uri=\"http://example.com/authz\",\n             client_secret=_consumer.client_secret,\ndiff --git a/tests/test_oic_message.py b/tests/test_oic_message.py\nindex 326665d..a4b77f8 100644\n--- a/tests/test_oic_message.py\n+++ b/tests/test_oic_message.py\n@@ -5,6 +5,7 @@ from urllib.parse import parse_qs\n from urllib.parse import urlencode\n \n import pytest\n+from freezegun import freeze_time\n from jwkest import BadSignature\n from jwkest.jwk import SYMKey\n from jwkest.jws import left_hash\n@@ -24,7 +25,9 @@ from oic.oic.message import AuthorizationResponse\n from oic.oic.message import BackChannelLogoutRequest\n from oic.oic.message import CHashError\n from oic.oic.message import Claims\n+from oic.oic.message import EXPError\n from oic.oic.message import FrontChannelLogoutRequest\n+from oic.oic.message import IATError\n from oic.oic.message import IdToken\n from oic.oic.message import LogoutToken\n from oic.oic.message import OpenIDSchema\n@@ -609,6 +612,69 @@ class TestAccessTokenResponse(object):\n             at.verify()\n \n \n+class TestIdToken(object):\n+    \"\"\"Unittests for IdToken class.\"\"\"\n+\n+    @freeze_time(\"2020-01-01 11:00:00\")\n+    def test_verify_iat_in_future(self):\n+        now = time_util.utc_time_sans_frac()\n+\n+        idt = IdToken(\n+            **{\n+                \"sub\": \"553df2bcf909104751cfd8b2\",\n+                \"aud\": [\"5542958437706128204e0000\", \"554295ce3770612820620000\"],\n+                \"auth_time\": 1441364872,\n+                \"azp\": \"554295ce3770612820620000\",\n+                \"at_hash\": \"L4Ign7TCAD_EppRbHAuCyw\",\n+                \"iat\": now + 7200,\n+                \"exp\": now + 3600,\n+                \"iss\": \"https://sso.qa.7pass.ctf.prosiebensat1.com\",\n+            }\n+        )\n+\n+        with pytest.raises(IATError):\n+            idt.verify()\n+\n+    @freeze_time(\"2020-01-01 11:00:00\")\n+    def test_verify_iat_in_future_expired(self):\n+        now = time_util.utc_time_sans_frac()\n+\n+        idt = IdToken(\n+            **{\n+                \"sub\": \"553df2bcf909104751cfd8b2\",\n+                \"aud\": [\"5542958437706128204e0000\", \"554295ce3770612820620000\"],\n+                \"auth_time\": 1441364872,\n+                \"azp\": \"554295ce3770612820620000\",\n+                \"at_hash\": \"L4Ign7TCAD_EppRbHAuCyw\",\n+                \"iat\": now + 3600,\n+                \"exp\": now,\n+                \"iss\": \"https://sso.qa.7pass.ctf.prosiebensat1.com\",\n+            }\n+        )\n+\n+        with pytest.raises(EXPError):\n+            idt.verify(skew=7200)\n+\n+    @freeze_time(\"2020-01-01 11:00:00\")\n+    def test_verify_iat_in_future_skew(self):\n+        now = time_util.utc_time_sans_frac()\n+\n+        idt = IdToken(\n+            **{\n+                \"sub\": \"553df2bcf909104751cfd8b2\",\n+                \"aud\": [\"5542958437706128204e0000\", \"554295ce3770612820620000\"],\n+                \"auth_time\": 1441364872,\n+                \"azp\": \"554295ce3770612820620000\",\n+                \"at_hash\": \"L4Ign7TCAD_EppRbHAuCyw\",\n+                \"iat\": now + 7200,\n+                \"exp\": now + 7600,\n+                \"iss\": \"https://sso.qa.7pass.ctf.prosiebensat1.com\",\n+            }\n+        )\n+\n+        idt.verify(skew=7200)\n+\n+\n def test_id_token():\n     _now = time_util.utc_time_sans_frac()\n \ndiff --git a/tests/test_oic_provider.py b/tests/test_oic_provider.py\nindex 674e284..8d42190 100644\n--- a/tests/test_oic_provider.py\n+++ b/tests/test_oic_provider.py\n@@ -38,6 +38,7 @@ from oic.oic.message import ClaimsRequest\n from oic.oic.message import IdToken\n from oic.oic.message import Message\n from oic.oic.message import OpenIDSchema\n+from oic.oic.message import ProviderConfigurationResponse\n from oic.oic.message import RefreshAccessTokenRequest\n from oic.oic.message import RegistrationRequest\n from oic.oic.message import RegistrationResponse\n@@ -224,6 +225,9 @@ class TestProvider(object):\n         self.cons.keyjar.import_jwks(\n             self.provider.keyjar.export_jwks(), self.cons.issuer\n         )\n+        self.cons.provider_info = ProviderConfigurationResponse(\n+            issuer=SERVER_INFO[\"issuer\"]\n+        )\n \n         self.cons2 = Consumer(\n             {}, CONSUMER_CONFIG.copy(), CLIENT_CONFIG_2, server_info=SERVER_INFO\n@@ -373,6 +377,7 @@ class TestProvider(object):\n \n         part = self.cons.parse_authz(query=resp.message)\n \n+        assert isinstance(part, tuple)\n         aresp = part[0]\n         assert part[1] is None\n         assert part[2] is None\n@@ -410,9 +415,10 @@ class TestProvider(object):\n \n         part = self.cons.parse_authz(resp.message)\n \n+        assert isinstance(part, tuple)\n         aresp = part[0]\n         assert part[1] is None\n-        assert part[2] is not None\n+        id_token = part[2]\n \n         assert isinstance(aresp, AuthorizationResponse)\n         assert _eq(aresp.keys(), [\"scope\", \"state\", \"id_token\", \"client_id\", \"code\"])\n@@ -421,7 +427,6 @@ class TestProvider(object):\n             self.cons.grant[_state].keys(),\n             [\"code\", \"id_token\", \"tokens\", \"exp_in\", \"grant_expiration_time\", \"seed\"],\n         )\n-        id_token = part[2]\n         assert isinstance(id_token, IdToken)\n         assert _eq(\n             id_token.keys(),\n",
+  "summary": "Multiple cryptographic issues in Python oic",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `oic` has a security vulnerability (CWE-325, CWE-347). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_oic_message.TestIdToken::test_verify_iat_in_future",
+    "tests.test_oic_message.TestIdToken::test_verify_iat_in_future_expired"
+  ],
+  "p2p_tests": [
+    "tests.test_oic_consumer::test_clean_response",
+    "tests.test_oic_consumer::test_response_types_to_grant_types",
+    "tests.test_oic_consumer_logout::test_session_update",
+    "tests.test_oic_message.TestAccessTokenResponse::test_faulty_idtoken",
+    "tests.test_oic_message.TestAccessTokenResponse::test_token_type",
+    "tests.test_oic_message.TestAccessTokenResponse::test_wrong_alg",
+    "tests.test_oic_message.TestAuthorizationRequest::test_deserialize",
+    "tests.test_oic_message.TestAuthorizationRequest::test_verify_no_scopes",
+    "tests.test_oic_message.TestAuthorizationResponse::test_verify_token_type",
+    "tests.test_oic_message.TestBackchannelLogout::test_bogus_logout_token",
+    "tests.test_oic_message.TestBackchannelLogout::test_verify_with_key",
+    "tests.test_oic_message.TestBackchannelLogout::test_verify_with_keyjar",
+    "tests.test_oic_message.TestFrontchannelLogout::test_verify_request",
+    "tests.test_oic_message.TestIdToken::test_verify_iat_in_future_skew",
+    "tests.test_oic_message.TestLogoutToken::test_extra_event",
+    "tests.test_oic_message.TestLogoutToken::test_no_sub_or_sid",
+    "tests.test_oic_message.TestLogoutToken::test_with_nonce",
+    "tests.test_oic_message.TestLogoutToken::test_with_sid",
+    "tests.test_oic_message.TestLogoutToken::test_with_sub",
+    "tests.test_oic_message.TestLogoutToken::test_with_sub_and_sid",
+    "tests.test_oic_message.TestLogoutToken::test_wrong_aud",
+    "tests.test_oic_message.TestLogoutToken::test_wrong_event",
+    "tests.test_oic_message.TestLogoutToken::test_wrong_event_content",
+    "tests.test_oic_message.TestLogoutToken::test_wrong_iat",
+    "tests.test_oic_message.TestLogoutToken::test_wrong_iss",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_deserialize",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_example_response",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[authorization_endpoint]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[id_token_signing_alg_values_supported]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[issuer]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[jwks_uri]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[response_types_supported]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_required_parameters[subject_types_supported]",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_token_endpoint_is_not_required_for_implicit_flow_only",
+    "tests.test_oic_message.TestProviderConfigurationResponse::test_token_endpoint_is_required_for_other_than_implicit_flow_only",
+    "tests.test_oic_message.TestRegistrationRequest::test_deserialize",
+    "tests.test_oic_message.TestRegistrationRequest::test_registration_request",
+    "tests.test_oic_message.TestRegistrationRequest::test_registration_request_with_coupled_encryption_params[id_token_encrypted_response_enc]",
+    "tests.test_oic_message.TestRegistrationRequest::test_registration_request_with_coupled_encryption_params[request_object_encryption_enc]",
+    "tests.test_oic_message.TestRegistrationRequest::test_registration_request_with_coupled_encryption_params[userinfo_encrypted_response_enc]",
+    "tests.test_oic_message.TestRegistrationResponse::test_deserialize",
+    "tests.test_oic_message::test_address_deser",
+    "tests.test_oic_message::test_claim_booleans[{\"email_verified\":false, \"email\":\"foo@example.com\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_booleans[{\"email_verified\":true, \"email\":\"foo@example.com\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_booleans[{\"phone_number_verified\":false, \"phone_number\":\"+1 555 200000\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_booleans[{\"phone_number_verified\":true, \"phone_number\":\"+1 555 20000\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_not_booleans[{\"email_verified\":\"Not\", \"email\":\"foo@example.com\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_not_booleans[{\"email_verified\":\"Sure\", \"email\":\"foo@example.com\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_not_booleans[{\"phone_number_verified\":\"Not\", \"phone_number\":\"+1 555 200000\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claim_not_booleans[{\"phone_number_verified\":\"Sure\", \"phone_number\":\"+1 555 20000\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_claims_deser",
+    "tests.test_oic_message::test_claims_deser_dict",
+    "tests.test_oic_message::test_claims_ser_json",
+    "tests.test_oic_message::test_id_token",
+    "tests.test_oic_message::test_msg_ser_dict",
+    "tests.test_oic_message::test_msg_ser_from_dict",
+    "tests.test_oic_message::test_msg_ser_json",
+    "tests.test_oic_message::test_msg_ser_urlencoded",
+    "tests.test_oic_message::test_openidschema",
+    "tests.test_oic_message::test_openidschema_from_json[{\"middle_name\":\"fo\", \"updated_at\":\"20170328081544Z\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_openidschema_from_json[{\"middle_name\":\"fo\", \"updated_at\":\"20170328081544Z\", \"sub\":true}]",
+    "tests.test_oic_message::test_openidschema_from_json[{\"middle_name\":\"fo\", \"updated_at\":false, \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_openidschema_from_json[{\"middle_name\":true, \"updated_at\":\"20170328081544\", \"sub\":\"abc\"}]",
+    "tests.test_oic_message::test_verify_id_token",
+    "tests.test_oic_message::test_verify_id_token_at_hash",
+    "tests.test_oic_message::test_verify_id_token_at_hash_and_chash",
+    "tests.test_oic_message::test_verify_id_token_at_hash_fail",
+    "tests.test_oic_message::test_verify_id_token_c_hash",
+    "tests.test_oic_message::test_verify_id_token_c_hash_fail",
+    "tests.test_oic_message::test_verify_id_token_iss_not_in_keyjar",
+    "tests.test_oic_message::test_verify_id_token_mismatch_aud_azp",
+    "tests.test_oic_message::test_verify_id_token_missing_at_hash",
+    "tests.test_oic_message::test_verify_id_token_missing_c_hash",
+    "tests.test_oic_message::test_verify_id_token_missing_iss",
+    "tests.test_oic_message::test_verify_id_token_wrong_aud",
+    "tests.test_oic_message::test_verify_id_token_wrong_issuer",
+    "tests.test_oic_message::test_verify_token_encrypted",
+    "tests.test_oic_message::test_verify_token_encrypted_no_key"
+  ],
+  "test_files": [
+    "tests/test_oic_consumer.py",
+    "tests/test_oic_consumer_logout.py",
+    "tests/test_oic_message.py",
+    "tests/test_oic_provider.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 78,
+  "n_after_pass": 80,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-4fjv-pmhg-3rfg",
+      "summary": "Multiple cryptographic issues in Python oic",
+      "details": "### Impact\n* Client implementations using this library\n\n### Issues\n1) The IdToken signature algorithm was not checked automatically, but only if the expected algorithm was passed in as a kwarg.\n2) JWA `none` algorithm was allowed in all flows.\n3) `oic.consumer.Consumer.parse_authz` returns an unverified IdToken. The verification of the token was left to the discretion of the implementator.\n4) `iat` claim was not checked for sanity (i.e. it could be in the future)\n\n### Patches\n1) IdToken signature is now always checked.\n2) JWA `none` algorithm is now allowed only if using the `response_type` `code`\n3) IdToken verification is now done automatically.\n4) `iat` claim is now checked for sanity.",
+      "aliases": [
+        "CVE-2020-26244",
+        "PYSEC-2020-69"
+      ],
+      "published": "2020-12-04T16:47:12Z",
+      "modified": "2026-07-08T05:59:40.468770443Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-325",
+        "CWE-347"
+      ],
+      "affected": [
+        {
+          "package": "oic",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.2.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/OpenIDC/pyoidc/security/advisories/GHSA-4fjv-pmhg-3rfg"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-26244"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/OpenIDC/pyoidc/commit/62f8d753fa17c8b1f29f8be639cf0b33afb02498"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/OpenIDC/pyoidc"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/OpenIDC/pyoidc/releases/tag/1.2.1"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/oic/PYSEC-2020-69.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://pypi.org/project/oic"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-4fjv-pmhg-3rfg",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2020-69",
+          "summary": "",
+          "details": "Python oic is a Python OpenID Connect implementation. In Python oic before version 1.2.1, there are several related cryptographic issues affecting client implementations that use the library. The issues are: 1) The IdToken signature algorithm was not checked automatically, but only if the expected algorithm was passed in as a kwarg. 2) JWA `none` algorithm was allowed in all flows. 3) oic.consumer.Consumer.parse_authz returns an unverified IdToken. The verification of the token was left to the discretion of the implementator. 4) iat claim was not checked for sanity (i.e. it could be in the future). These issues are patched in version 1.2.1.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2020-69"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "62f8d753fa17c8b1f29f8be639cf0b33afb02498",
+      "authored_at": "2020-12-01T11:22:03+01:00",
+      "committed_at": "2020-12-01T11:22:03+01:00",
+      "message": "Merge pull request from GHSA-4fjv-pmhg-3rfg\n\nCve 2020 26244",
+      "url": "https://github.com/OpenIDC/pyoidc/commit/62f8d753fa17c8b1f29f8be639cf0b33afb02498"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T19:07:31+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "id": "GHSA-qcj3-h27m-mp9x",
+  "aliases": [
+    "CVE-2018-16856",
+    "PYSEC-2019-193"
+  ],
+  "cwes": [
+    "CWE-532"
+  ],
+  "severity": "HIGH",
+  "package": "octavia",
+  "repo": {
+    "owner": "openstack",
+    "name": "octavia",
+    "url": "https://github.com/openstack/octavia"
+  },
+  "base_commit": "6e0bed1c540769e22af0dfff4af8c630dae2a5dd",
+  "fix_commit": "ae7c87f54a6c5483a608d5e9fe51ea1966ea1f7e",
+  "python_requires": "",
+  "changed_source_files": [
+    "octavia/certificates/common/local.py",
+    "octavia/common/config.py",
+    "octavia/common/utils.py",
+    "octavia/controller/worker/controller_worker.py",
+    "octavia/controller/worker/tasks/amphora_driver_tasks.py",
+    "octavia/controller/worker/tasks/cert_task.py",
+    "octavia/controller/worker/tasks/compute_tasks.py",
+    "octavia/controller/worker/tasks/database_tasks.py"
+  ],
+  "changed_test_files": [
+    "octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py",
+    "octavia/tests/unit/controller/worker/tasks/test_cert_task.py",
+    "octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py",
+    "octavia/tests/unit/controller/worker/tasks/test_database_tasks.py"
+  ],
+  "source_patch": "diff --git a/octavia/certificates/common/local.py b/octavia/certificates/common/local.py\nindex 9ff3d44..6b211e2 100644\n--- a/octavia/certificates/common/local.py\n+++ b/octavia/certificates/common/local.py\n@@ -29,6 +29,9 @@ TLS_KEY_DEFAULT = os.environ.get(\n     'OS_OCTAVIA_TLS_CA_KEY', '/etc/ssl/private/ssl-cert-snakeoil.key'\n )\n TLS_PKP_DEFAULT = os.environ.get('OS_OCTAVIA_CA_KEY_PASS')\n+TLS_PASS_AMPS_DEFAULT = os.environ.get('TLS_PASS_AMPS_DEFAULT',\n+                                       'insecure-key-do-not-use-this-key')\n+\n TLS_DIGEST_DEFAULT = os.environ.get('OS_OCTAVIA_CA_SIGNING_DIGEST', 'sha256')\n TLS_STORAGE_DEFAULT = os.environ.get(\n     'OS_OCTAVIA_TLS_STORAGE', '/var/lib/octavia/certificates/'\n@@ -47,6 +50,12 @@ certgen_opts = [\n                default=TLS_PKP_DEFAULT,\n                help='Passphrase for the Private Key. Defaults'\n                     ' to env[OS_OCTAVIA_CA_KEY_PASS] or None.'),\n+    cfg.StrOpt('server_certs_key_passphrase',\n+               default=TLS_PASS_AMPS_DEFAULT,\n+               help='Passphrase for encrypting Amphora Certificates and '\n+                    'Private Keys. Defaults to env[TLS_PASS_AMPS_DEFAULT] or '\n+                    'insecure-key-do-not-use-this-key',\n+               required=True),\n     cfg.StrOpt('signing_digest',\n                default=TLS_DIGEST_DEFAULT,\n                help='Certificate signing digest. Defaults'\n@@ -60,10 +69,6 @@ certmgr_opts = [\n                     'Defaults to env[OS_OCTAVIA_TLS_STORAGE].')\n ]\n \n-CONF = cfg.CONF\n-CONF.register_opts(certgen_opts, group='certificates')\n-CONF.register_opts(certmgr_opts, group='certificates')\n-\n \n class LocalCert(cert.Cert):\n     \"\"\"Representation of a Cert for local storage.\"\"\"\ndiff --git a/octavia/common/config.py b/octavia/common/config.py\nindex 836a75a..4cb9263 100644\n--- a/octavia/common/config.py\n+++ b/octavia/common/config.py\n@@ -26,6 +26,7 @@ from oslo_db import options as db_options\n from oslo_log import log as logging\n import oslo_messaging as messaging\n \n+from octavia.certificates.common import local\n from octavia.common import constants\n from octavia.common import utils\n from octavia.i18n import _\n@@ -621,6 +622,9 @@ cfg.CONF.register_opts(neutron_opts, group='neutron')\n cfg.CONF.register_opts(quota_opts, group='quotas')\n cfg.CONF.register_opts(audit_opts, group='audit')\n \n+cfg.CONF.register_opts(local.certgen_opts, group='certificates')\n+cfg.CONF.register_opts(local.certmgr_opts, group='certificates')\n+\n # Ensure that the control exchange is set correctly\n messaging.set_transport_defaults(control_exchange='octavia')\n _SQL_CONNECTION_DEFAULT = 'sqlite://'\ndiff --git a/octavia/common/utils.py b/octavia/common/utils.py\nindex 148c62e..921607b 100644\n--- a/octavia/common/utils.py\n+++ b/octavia/common/utils.py\n@@ -26,6 +26,7 @@ import netaddr\n from oslo_config import cfg\n from oslo_log import log as logging\n from oslo_utils import excutils\n+import six\n from stevedore import driver as stevedore_driver\n \n CONF = cfg.CONF\n@@ -90,6 +91,19 @@ def ip_netmask_to_cidr(ip, netmask):\n     return \"{ip}/{netmask}\".format(ip=net.network, netmask=net.prefixlen)\n \n \n+def get_six_compatible_value(value, six_type=six.string_types):\n+    if six.PY3 and isinstance(value, six_type):\n+        value = value.encode('utf-8')\n+    return value\n+\n+\n+def get_six_compatible_server_certs_key_passphrase():\n+    key = CONF.certificates.server_certs_key_passphrase\n+    if six.PY3 and isinstance(key, six.string_types):\n+        key = key.encode('utf-8')\n+    return base64.urlsafe_b64encode(key)\n+\n+\n class exception_logger(object):\n     \"\"\"Wrap a function and log raised exception\n \ndiff --git a/octavia/controller/worker/controller_worker.py b/octavia/controller/worker/controller_worker.py\nindex 6b7d109..b428132 100644\n--- a/octavia/controller/worker/controller_worker.py\n+++ b/octavia/controller/worker/controller_worker.py\n@@ -71,23 +71,6 @@ class ControllerWorker(base_taskflow.BaseTaskFlowEngine):\n         self._l7rule_repo = repo.L7RuleRepository()\n         self._flavor_repo = repo.FlavorRepository()\n \n-        self._exclude_result_logging_tasks = (\n-            constants.ROLE_STANDALONE + '-' +\n-            constants.CREATE_AMP_FOR_LB_SUBFLOW + '-' +\n-            constants.GENERATE_SERVER_PEM,\n-            constants.ROLE_BACKUP + '-' +\n-            constants.CREATE_AMP_FOR_LB_SUBFLOW + '-' +\n-            constants.GENERATE_SERVER_PEM,\n-            constants.ROLE_MASTER + '-' +\n-            constants.CREATE_AMP_FOR_LB_SUBFLOW + '-' +\n-            constants.GENERATE_SERVER_PEM,\n-            constants.GENERATE_SERVER_PEM_TASK,\n-            constants.FAILOVER_AMPHORA_FLOW + '-' +\n-            constants.CREATE_AMP_FOR_LB_SUBFLOW + '-' +\n-            constants.GENERATE_SERVER_PEM,\n-            constants.CREATE_AMP_FOR_LB_SUBFLOW + '-' +\n-            constants.UPDATE_CERT_EXPIRATION)\n-\n         super(ControllerWorker, self).__init__()\n \n     @tenacity.retry(\n@@ -115,10 +98,7 @@ class ControllerWorker(base_taskflow.BaseTaskFlowEngine):\n                        constants.LB_CREATE_SPARES_POOL_PRIORITY,\n                        constants.FLAVOR: None}\n             )\n-            with tf_logging.DynamicLoggingListener(\n-                    create_amp_tf, log=LOG,\n-                    hide_inputs_outputs_of=self._exclude_result_logging_tasks):\n-\n+            with tf_logging.DynamicLoggingListener(create_amp_tf, log=LOG):\n                 create_amp_tf.run()\n \n             return create_amp_tf.storage.fetch('amphora')\n@@ -359,9 +339,7 @@ class ControllerWorker(base_taskflow.BaseTaskFlowEngine):\n             topology=topology, listeners=lb.listeners)\n \n         create_lb_tf = self._taskflow_load(create_lb_flow, store=store)\n-        with tf_logging.DynamicLoggingListener(\n-                create_lb_tf, log=LOG,\n-                hide_inputs_outputs_of=self._exclude_result_logging_tasks):\n+        with tf_logging.DynamicLoggingListener(create_lb_tf, log=LOG):\n             create_lb_tf.run()\n \n     def delete_load_balancer(self, load_balancer_id, cascade=False):\n@@ -857,10 +835,7 @@ class ControllerWorker(base_taskflow.BaseTaskFlowEngine):\n                 role=amp.role, load_balancer=lb),\n             store=stored_params)\n \n-        with tf_logging.DynamicLoggingListener(\n-                failover_amphora_tf, log=LOG,\n-                hide_inputs_outputs_of=self._exclude_result_logging_tasks):\n-\n+        with tf_logging.DynamicLoggingListener(failover_amphora_tf, log=LOG):\n             failover_amphora_tf.run()\n \n     def failover_amphora(self, amphora_id):\ndiff --git a/octavia/controller/worker/tasks/amphora_driver_tasks.py b/octavia/controller/worker/tasks/amphora_driver_tasks.py\nindex 95a0672..e321fe3 100644\n--- a/octavia/controller/worker/tasks/amphora_driver_tasks.py\n+++ b/octavia/controller/worker/tasks/amphora_driver_tasks.py\n@@ -13,6 +13,7 @@\n # under the License.\n #\n \n+from cryptography import fernet\n from oslo_config import cfg\n from oslo_log import log as logging\n import six\n@@ -23,6 +24,7 @@ from taskflow.types import failure\n from octavia.amphorae.backends.agent import agent_jinja_cfg\n from octavia.amphorae.driver_exceptions import exceptions as driver_except\n from octavia.common import constants\n+from octavia.common import utils\n from octavia.controller.worker import task_utils as task_utilities\n from octavia.db import api as db_apis\n from octavia.db import repositories as repo\n@@ -273,7 +275,9 @@ class AmphoraCertUpload(BaseAmphoraTask):\n     def execute(self, amphora, server_pem):\n         \"\"\"Execute cert_update_amphora routine.\"\"\"\n         LOG.debug(\"Upload cert in amphora REST driver\")\n-        self.amphora_driver.upload_cert_amp(amphora, server_pem)\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n+        self.amphora_driver.upload_cert_amp(amphora, fer.decrypt(server_pem))\n \n \n class AmphoraUpdateVRRPInterface(BaseAmphoraTask):\ndiff --git a/octavia/controller/worker/tasks/cert_task.py b/octavia/controller/worker/tasks/cert_task.py\nindex 6997129..6469046 100644\n--- a/octavia/controller/worker/tasks/cert_task.py\n+++ b/octavia/controller/worker/tasks/cert_task.py\n@@ -13,10 +13,12 @@\n # under the License.\n #\n \n+from cryptography import fernet\n from oslo_config import cfg\n from stevedore import driver as stevedore_driver\n from taskflow import task\n \n+from octavia.common import utils\n \n CONF = cfg.CONF\n CERT_VALIDITY = 2 * 365 * 24 * 60 * 60\n@@ -44,5 +46,7 @@ class GenerateServerPEMTask(BaseCertTask):\n         cert = self.cert_generator.generate_cert_key_pair(\n             cn=amphora_id,\n             validity=CERT_VALIDITY)\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n \n-        return cert.certificate + cert.private_key\n+        return fer.encrypt(cert.certificate + cert.private_key)\ndiff --git a/octavia/controller/worker/tasks/compute_tasks.py b/octavia/controller/worker/tasks/compute_tasks.py\nindex 8bc3574..9dcbd21 100644\n--- a/octavia/controller/worker/tasks/compute_tasks.py\n+++ b/octavia/controller/worker/tasks/compute_tasks.py\n@@ -15,6 +15,7 @@\n \n import time\n \n+from cryptography import fernet\n from oslo_config import cfg\n from oslo_log import log as logging\n from stevedore import driver as stevedore_driver\n@@ -25,6 +26,7 @@ from octavia.amphorae.backends.agent import agent_jinja_cfg\n from octavia.common import constants\n from octavia.common import exceptions\n from octavia.common.jinja import user_data_jinja_cfg\n+from octavia.common import utils\n from octavia.controller.worker import amphora_rate_limit\n \n CONF = cfg.CONF\n@@ -144,8 +146,11 @@ class CertComputeCreate(ComputeCreate):\n         # load client certificate\n         with open(CONF.controller_worker.client_ca, 'r') as client_ca:\n             ca = client_ca.read()\n+\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n         config_drive_files = {\n-            '/etc/octavia/certs/server.pem': server_pem,\n+            '/etc/octavia/certs/server.pem': fer.decrypt(server_pem),\n             '/etc/octavia/certs/client_ca.pem': ca}\n         return super(CertComputeCreate, self).execute(\n             amphora_id, config_drive_files=config_drive_files,\ndiff --git a/octavia/controller/worker/tasks/database_tasks.py b/octavia/controller/worker/tasks/database_tasks.py\nindex 9dd224a..3b50c5e 100644\n--- a/octavia/controller/worker/tasks/database_tasks.py\n+++ b/octavia/controller/worker/tasks/database_tasks.py\n@@ -13,6 +13,7 @@\n # under the License.\n #\n \n+from cryptography import fernet\n from oslo_config import cfg\n from oslo_db import exception as odb_exceptions\n from oslo_log import log as logging\n@@ -27,6 +28,7 @@ from taskflow.types import failure\n from octavia.common import constants\n from octavia.common import data_models\n import octavia.common.tls_utils.cert_parser as cert_parser\n+from octavia.common import utils\n from octavia.common import validate\n from octavia.controller.worker import task_utils as task_utilities\n from octavia.db import api as db_apis\n@@ -918,7 +920,11 @@ class UpdateAmphoraDBCertExpiration(BaseDatabaseTask):\n         \"\"\"\n \n         LOG.debug(\"Update DB cert expiry date of amphora id: %s\", amphora_id)\n-        cert_expiration = cert_parser.get_cert_expiration(server_pem)\n+\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n+        cert_expiration = cert_parser.get_cert_expiration(\n+            fer.decrypt(server_pem))\n         LOG.debug(\"Certificate expiration date is %s \", cert_expiration)\n         self.amphora_repo.update(db_apis.get_session(), amphora_id,\n                                  cert_expiration=cert_expiration)\n",
+  "test_patch": "diff --git a/octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py b/octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py\nindex 58432b5..02c30a6 100644\n--- a/octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py\n+++ b/octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py\n@@ -13,6 +13,7 @@\n # under the License.\n #\n \n+from cryptography import fernet\n import mock\n from oslo_config import cfg\n from oslo_config import fixture as oslo_fixture\n@@ -22,6 +23,7 @@ from taskflow.types import failure\n from octavia.amphorae.driver_exceptions import exceptions as driver_except\n from octavia.common import constants\n from octavia.common import data_models\n+from octavia.common import utils\n from octavia.controller.worker.tasks import amphora_driver_tasks\n from octavia.db import repositories as repo\n import octavia.tests.unit.base as base\n@@ -506,12 +508,15 @@ class TestAmphoraDriverTasks(base.TestCase):\n                                  mock_listener_repo_get,\n                                  mock_listener_repo_update,\n                                  mock_amphora_repo_update):\n-        pem_file_mock = 'test-perm-file'\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n+        pem_file_mock = fer.encrypt(\n+            utils.get_six_compatible_value('test-pem-file'))\n         amphora_cert_upload_mock = amphora_driver_tasks.AmphoraCertUpload()\n         amphora_cert_upload_mock.execute(_amphora_mock, pem_file_mock)\n \n         mock_driver.upload_cert_amp.assert_called_once_with(\n-            _amphora_mock, pem_file_mock)\n+            _amphora_mock, fer.decrypt(pem_file_mock))\n \n     def test_amphora_update_vrrp_interface(self,\n                                            mock_driver,\ndiff --git a/octavia/tests/unit/controller/worker/tasks/test_cert_task.py b/octavia/tests/unit/controller/worker/tasks/test_cert_task.py\nindex d32a360..f116c4b 100644\n--- a/octavia/tests/unit/controller/worker/tasks/test_cert_task.py\n+++ b/octavia/tests/unit/controller/worker/tasks/test_cert_task.py\n@@ -13,21 +13,31 @@\n # under the License.\n #\n \n+from cryptography import fernet\n import mock\n \n from octavia.certificates.common import local\n+from octavia.common import utils\n from octavia.controller.worker.tasks import cert_task\n import octavia.tests.unit.base as base\n \n \n class TestCertTasks(base.TestCase):\n+\n     @mock.patch('stevedore.driver.DriverManager.driver')\n     def test_execute(self, mock_driver):\n-        dummy_cert = local.LocalCert('test_cert', 'test_key')\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n+        dummy_cert = local.LocalCert(\n+            utils.get_six_compatible_value('test_cert'),\n+            utils.get_six_compatible_value('test_key'))\n         mock_driver.generate_cert_key_pair.side_effect = [dummy_cert]\n         c = cert_task.GenerateServerPEMTask()\n         pem = c.execute('123')\n         self.assertEqual(\n-            pem, dummy_cert.get_certificate() + dummy_cert.get_private_key())\n+            fer.decrypt(pem),\n+            dummy_cert.get_certificate() +\n+            dummy_cert.get_private_key()\n+        )\n         mock_driver.generate_cert_key_pair.assert_called_once_with(\n             cn='123', validity=cert_task.CERT_VALIDITY)\ndiff --git a/octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py b/octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py\nindex e9bf6bf..a89ca17 100644\n--- a/octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py\n+++ b/octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py\n@@ -13,6 +13,7 @@\n # under the License.\n #\n \n+from cryptography import fernet\n import mock\n from oslo_config import cfg\n from oslo_config import fixture as oslo_fixture\n@@ -20,6 +21,7 @@ from oslo_utils import uuidutils\n \n from octavia.common import constants\n from octavia.common import exceptions\n+from octavia.common import utils\n from octavia.controller.worker.tasks import compute_tasks\n from octavia.tests.common import utils as test_utils\n import octavia.tests.unit.base as base\n@@ -270,13 +272,17 @@ class TestComputeTasks(base.TestCase):\n     @mock.patch('stevedore.driver.DriverManager.driver')\n     def test_compute_create_cert(self, mock_driver, mock_conf, mock_jinja):\n         createcompute = compute_tasks.CertComputeCreate()\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n \n         mock_driver.build.return_value = COMPUTE_ID\n         path = '/etc/octavia/certs/ca_01.pem'\n         self.useFixture(test_utils.OpenFixture(path, 'test'))\n-\n         # Test execute()\n-        compute_id = createcompute.execute(_amphora_mock.id, 'test_cert',\n+        test_cert = fer.encrypt(\n+            utils.get_six_compatible_value('test_cert')\n+        )\n+        compute_id = createcompute.execute(_amphora_mock.id, test_cert,\n                                            server_group_id=SERVER_GRPOUP_ID\n                                            )\n \n@@ -293,7 +299,7 @@ class TestComputeTasks(base.TestCase):\n             port_ids=[],\n             user_data=None,\n             config_drive_files={\n-                '/etc/octavia/certs/server.pem': 'test_cert',\n+                '/etc/octavia/certs/server.pem': fer.decrypt(test_cert),\n                 '/etc/octavia/certs/client_ca.pem': 'test',\n                 '/etc/octavia/amphora-agent.conf': 'test_conf'},\n             server_group_id=SERVER_GRPOUP_ID)\n@@ -307,7 +313,7 @@ class TestComputeTasks(base.TestCase):\n         self.assertRaises(TypeError,\n                           createcompute.execute,\n                           _amphora_mock,\n-                          config_drive_files='test_cert')\n+                          config_drive_files=test_cert)\n \n         # Test revert()\n \ndiff --git a/octavia/tests/unit/controller/worker/tasks/test_database_tasks.py b/octavia/tests/unit/controller/worker/tasks/test_database_tasks.py\nindex baabf5b..7611edb 100644\n--- a/octavia/tests/unit/controller/worker/tasks/test_database_tasks.py\n+++ b/octavia/tests/unit/controller/worker/tasks/test_database_tasks.py\n@@ -15,6 +15,7 @@\n \n import random\n \n+from cryptography import fernet\n import mock\n from oslo_db import exception as odb_exceptions\n from oslo_utils import uuidutils\n@@ -23,6 +24,7 @@ from taskflow.types import failure\n \n from octavia.common import constants\n from octavia.common import data_models\n+from octavia.common import utils\n from octavia.controller.worker.tasks import database_tasks\n from octavia.db import repositories as repo\n import octavia.tests.unit.base as base\n@@ -83,42 +85,6 @@ _vip_mock.subnet_id = SUBNET_ID\n _vip_mock.ip_address = VIP_IP\n _vrrp_group_mock = mock.MagicMock()\n _cert_mock = mock.MagicMock()\n-_pem_mock = \"\"\"Junk\n------BEGIN CERTIFICATE-----\n-MIIBhDCCAS6gAwIBAgIGAUo7hO/eMA0GCSqGSIb3DQEBCwUAMA8xDTALBgNVBAMT\n-BElNRDIwHhcNMTQxMjExMjI0MjU1WhcNMjUxMTIzMjI0MjU1WjAPMQ0wCwYDVQQD\n-EwRJTUQzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKHIPXo2pfD5dpnpVDVz4n43\n-zn3VYsjz/mgOZU0WIWjPA97mvulb7mwb4/LB4ijOMzHj9XfwP75GiOFxYFs8O80C\n-AwEAAaNwMG4wDwYDVR0TAQH/BAUwAwEB/zA8BgNVHSMENTAzgBS6rfnABCO3oHEz\n-NUUtov2hfXzfVaETpBEwDzENMAsGA1UEAxMESU1EMYIGAUo7hO/DMB0GA1UdDgQW\n-BBRiLW10LVJiFO/JOLsQFev0ToAcpzANBgkqhkiG9w0BAQsFAANBABtdF+89WuDi\n-TC0FqCocb7PWdTucaItD9Zn55G8KMd93eXrOE/FQDf1ScC+7j0jIHXjhnyu6k3NV\n-8el/x5gUHlc=\n------END CERTIFICATE-----\n-Junk should be ignored by x509 splitter\n------BEGIN CERTIFICATE-----\n-MIIBhDCCAS6gAwIBAgIGAUo7hO/DMA0GCSqGSIb3DQEBCwUAMA8xDTALBgNVBAMT\n-BElNRDEwHhcNMTQxMjExMjI0MjU1WhcNMjUxMTIzMjI0MjU1WjAPMQ0wCwYDVQQD\n-EwRJTUQyMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAJYHqnsisVKTlwVaCSa2wdrv\n-CeJJzqpEVV0RVgAAF6FXjX2Tioii+HkXMR9zFgpE1w4yD7iu9JDb8yTdNh+NxysC\n-AwEAAaNwMG4wDwYDVR0TAQH/BAUwAwEB/zA8BgNVHSMENTAzgBQt3KvN8ncGj4/s\n-if1+wdvIMCoiE6ETpBEwDzENMAsGA1UEAxMEcm9vdIIGAUo7hO+mMB0GA1UdDgQW\n-BBS6rfnABCO3oHEzNUUtov2hfXzfVTANBgkqhkiG9w0BAQsFAANBAIlJODvtmpok\n-eoRPOb81MFwPTTGaIqafebVWfBlR0lmW8IwLhsOUdsQqSzoeypS3SJUBpYT1Uu2v\n-zEDOmgdMsBY=\n------END CERTIFICATE-----\n-Junk should be thrown out like junk\n------BEGIN CERTIFICATE-----\n-MIIBfzCCASmgAwIBAgIGAUo7hO+mMA0GCSqGSIb3DQEBCwUAMA8xDTALBgNVBAMT\n-BHJvb3QwHhcNMTQxMjExMjI0MjU1WhcNMjUxMTIzMjI0MjU1WjAPMQ0wCwYDVQQD\n-EwRJTUQxMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAI+tSJxr60ogwXFmgqbLMW7K\n-3fkQnh9sZBi7Qo6AzUnfe/AhXoisib651fOxKXCbp57IgzLTv7O9ygq3I+5fQqsC\n-AwEAAaNrMGkwDwYDVR0TAQH/BAUwAwEB/zA3BgNVHSMEMDAugBR73ZKSpjbsz9tZ\n-URkvFwpIO7gB4KETpBEwDzENMAsGA1UEAxMEcm9vdIIBATAdBgNVHQ4EFgQULdyr\n-zfJ3Bo+P7In9fsHbyDAqIhMwDQYJKoZIhvcNAQELBQADQQBenkZ2k7RgZqgj+dxA\n-D7BF8MN1oUAOpyYqAjkGddSEuMyNmwtHKZI1dyQ0gBIQdiU9yAG2oTbUIK4msbBV\n-uJIQ\n------END CERTIFICATE-----\"\"\"\n _compute_mock = mock.MagicMock()\n _compute_mock.lb_network_ip = LB_NET_IP\n _compute_mock.cached_zone = CACHED_ZONE\n@@ -1095,6 +1061,11 @@ class TestDatabaseTasks(base.TestCase):\n                                         mock_get_cert_exp):\n \n         update_amp_cert = database_tasks.UpdateAmphoraDBCertExpiration()\n+        key = utils.get_six_compatible_server_certs_key_passphrase()\n+        fer = fernet.Fernet(key)\n+        _pem_mock = fer.encrypt(\n+            utils.get_six_compatible_value('test_cert')\n+        )\n         update_amp_cert.execute(_amphora_mock.id, _pem_mock)\n \n         repo.AmphoraRepository.update.assert_called_once_with(\n",
+  "summary": "Openstack Octavia allows Insertion of Sensitive Information into Log File",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `octavia` has a security vulnerability (CWE-532). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_cert_upload",
+    "octavia.tests.unit.controller.worker.tasks.test_cert_task.TestCertTasks::test_execute",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_create_cert",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amphora_db_cert_exp"
+  ],
+  "p2p_tests": [
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amp_listener_update",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_compute_connectivity_wait",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_config_update",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_finalize",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_get_diagnostics",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_get_info",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_post_network_plug",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_post_vip_plug",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_update_vrrp_interface",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_vrrp_start",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_vrrp_stop",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphora_vrrp_update",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphorae_post_network_plug",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_amphorae_post_vip_plug",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_listener_delete",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_listener_start",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_listener_stop",
+    "octavia.tests.unit.controller.worker.tasks.test_amphora_driver_tasks.TestAmphoraDriverTasks::test_listener_update",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_create",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_create_user_data",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_create_without_ssh_access",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_delete",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_wait",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_wait_error_status",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_compute_wait_skipped",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_delete_amphorae_on_load_balancer",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_nova_server_group_create",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_nova_server_group_delete_with_None",
+    "octavia.tests.unit.controller.worker.tasks.test_compute_tasks.TestComputeTasks::test_nova_server_group_delete_with_sever_group_id",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_associate_failover_amphora_with_lb_id",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_create_amphora_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_create_vrrp_group_for_lb",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_health_monitor_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_health_monitor_in_db_by_pool",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_l7policy_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_l7rule_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_listener_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_member_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_delete_pool_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_disable_amphora_health_monitoring",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_disable_lb_amphorae_health_monitoring",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_get_amphora_details",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_get_amphorae_from_loadbalancer",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_get_listeners_from_loadbalancer",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_get_vip_from_loadbalancer",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_map_loadbalancer_to_amphora",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_LB_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_LB_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_LB_pending_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_allocated_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_booting_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_health_monitoring_busy",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_ready_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_amphora_role_indb",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_health_mon_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_health_mon_pending_create_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_health_mon_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_health_mon_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7policy_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7policy_pending_create_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7policy_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7policy_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7rule_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7rule_pending_create_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7rule_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_l7rule_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_lb_amphorae_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_lb_amphorae_health_monitoring_busy",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_lb_and_listeners_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_listener_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_listener_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_listener_pending_deleted_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_member_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_member_pending_create_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_member_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_member_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_pool_active_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_pool_pending_create_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_pool_pending_delete_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_mark_pool_pending_update_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_reload_amphora",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_reload_load_balancer",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amp_failover_details",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amphora_cert_busy_to_false",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amphora_info",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amphora_vip_data",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_amphora_vip_data2",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_health_monitor_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_l7policy_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_l7rule_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_lb_server_group_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_listener_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_load_balancer_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_member_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_pool_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_pool_members_operating_status_in_db",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_vip_after_allocation",
+    "octavia.tests.unit.controller.worker.tasks.test_database_tasks.TestDatabaseTasks::test_update_vip_in_db_during_update_loadbalancer"
+  ],
+  "test_files": [
+    "octavia/tests/unit/controller/worker/tasks/test_amphora_driver_tasks.py",
+    "octavia/tests/unit/controller/worker/tasks/test_cert_task.py",
+    "octavia/tests/unit/controller/worker/tasks/test_compute_tasks.py",
+    "octavia/tests/unit/controller/worker/tasks/test_database_tasks.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 101,
+  "n_after_pass": 105,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-qcj3-h27m-mp9x",
+      "summary": "Openstack Octavia allows Insertion of Sensitive Information into Log File",
+      "details": "In a default Red Hat Openstack Platform Director installation, openstack-octavia before versions openstack-octavia 2.0.2-5 and openstack-octavia-3.0.1-0.20181009115732 creates log files that are readable by all users. Sensitive information such as private keys can appear in these log files allowing for information exposure.",
+      "aliases": [
+        "CVE-2018-16856",
+        "PYSEC-2019-193"
+      ],
+      "published": "2022-05-13T01:07:34Z",
+      "modified": "2024-10-07T21:35:06.375748Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-532"
+      ],
+      "affected": [
+        {
+          "package": "octavia",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.1.0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": "octavia",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "3.0.0.0b1"
+                },
+                {
+                  "fixed": "3.1.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2018-16856"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/openstack/octavia/commit/ae7c87f54a6c5483a608d5e9fe51ea1966ea1f7e"
+        },
+        {
+          "type": "WEB",
+          "url": "https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2018-16856"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/openstack/octavia"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/openstack/octavia/commits/3.1.0"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/octavia/PYSEC-2019-193.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-qcj3-h27m-mp9x",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "ae7c87f54a6c5483a608d5e9fe51ea1966ea1f7e",
+      "authored_at": "2018-12-20T17:09:26+02:00",
+      "committed_at": "2019-02-24T15:41:20+02:00",
+      "message": "Encrypt certs and keys\n\nOctavia creates certificates and keys to manage encrypted\ncommunication channel to amphorae.\nWhen debug is enabled, the python taskflow module will log\nall the information we provide to tasks (and sub-flows)\nwhen we create amphorae or handle with anything related to\ncertificates and keys management (rotations, etc).\n\nThere are ways to tell taskflow to exclude specific things\nfrom being logged (e.g., I136081045787c1bbe3ee846d5845a34201c57864).\nWhile this handles some information in specific flows from being\nlogged, it is susceptive to code changes.\n\nTo avoid an everlasting whack-a-mole game, this patch will merely\nencrypt sensitive information so we can safely log it and decrypts\nit only when we need to use it.\n\nChange-Id: I06d329ca53bc36bd27f7870ae7c7ca0cf18575b2",
+      "url": "https://github.com/openstack/octavia/commit/ae7c87f54a6c5483a608d5e9fe51ea1966ea1f7e"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T00:43:35+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

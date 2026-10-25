@@ -1,0 +1,158 @@
+{
+  "id": "GHSA-q6mv-284r-mp36",
+  "aliases": [
+    "CVE-2024-53848",
+    "PYSEC-2026-1245"
+  ],
+  "cwes": [
+    "CWE-349"
+  ],
+  "severity": "MODERATE",
+  "package": "check-jsonschema",
+  "repo": {
+    "owner": "python-jsonschema",
+    "name": "check-jsonschema",
+    "url": "https://github.com/python-jsonschema/check-jsonschema"
+  },
+  "base_commit": "85aa1cc060e60bcd7a8753826f2af81282b1c6ec",
+  "fix_commit": "c52714b85e6725b1b24516fbdedacb333b939152",
+  "python_requires": ">=3.8",
+  "changed_source_files": [
+    "src/check_jsonschema/cachedownloader.py",
+    "src/check_jsonschema/cli/main_command.py",
+    "src/check_jsonschema/schema_loader/main.py",
+    "src/check_jsonschema/schema_loader/readers.py",
+    "src/check_jsonschema/schema_loader/resolver.py"
+  ],
+  "changed_test_files": [
+    "tests/conftest.py",
+    "tests/unit/test_cachedownloader.py"
+  ],
+  "source_patch": "diff --git a/src/check_jsonschema/cachedownloader.py b/src/check_jsonschema/cachedownloader.py\nindex 6b98651..41cf2aa 100644\n--- a/src/check_jsonschema/cachedownloader.py\n+++ b/src/check_jsonschema/cachedownloader.py\n@@ -1,6 +1,7 @@\n from __future__ import annotations\n \n import contextlib\n+import hashlib\n import io\n import os\n import platform\n@@ -33,7 +34,7 @@ def _base_cache_dir() -> str | None:\n     return cache_dir\n \n \n-def _resolve_cache_dir(dirname: str = \"downloads\") -> str | None:\n+def _resolve_cache_dir(dirname: str) -> str | None:\n     cache_dir = _base_cache_dir()\n     if cache_dir:\n         cache_dir = os.path.join(cache_dir, \"check_jsonschema\", dirname)\n@@ -95,18 +96,32 @@ def _cache_hit(cachefile: str, response: requests.Response) -> bool:\n     return local_mtime >= remote_mtime\n \n \n+def url_to_cache_filename(ref_url: str) -> str:\n+    \"\"\"\n+    Given a schema URL, convert it to a filename for caching in a cache dir.\n+\n+    Rules are as follows:\n+    - the base filename is an sha256 hash of the URL\n+    - if the filename ends in an extension (.json, .yaml, etc) that extension\n+      is appended to the hash\n+\n+    Preserving file extensions preserves the extension-based logic used for parsing, and\n+    it also helps a local editor (browsing the cache) identify filetypes.\n+    \"\"\"\n+    filename = hashlib.sha256(ref_url.encode()).hexdigest()\n+    if \".\" in (last_part := ref_url.rpartition(\"/\")[-1]):\n+        _, _, extension = last_part.rpartition(\".\")\n+        filename = f\"{filename}.{extension}\"\n+    return filename\n+\n+\n class FailedDownloadError(Exception):\n     pass\n \n \n class CacheDownloader:\n-    def __init__(\n-        self, cache_dir: str | None = None, disable_cache: bool = False\n-    ) -> None:\n-        if cache_dir is None:\n-            self._cache_dir = _resolve_cache_dir()\n-        else:\n-            self._cache_dir = _resolve_cache_dir(cache_dir)\n+    def __init__(self, cache_dir: str, *, disable_cache: bool = False) -> None:\n+        self._cache_dir = _resolve_cache_dir(cache_dir)\n         self._disable_cache = disable_cache\n \n     def _download(\n@@ -160,7 +175,7 @@ class CacheDownloader:\n         validation_callback: t.Callable[[bytes], t.Any] | None = None,\n     ) -> BoundCacheDownloader:\n         return BoundCacheDownloader(\n-            file_url, filename, self, validation_callback=validation_callback\n+            file_url, self, filename=filename, validation_callback=validation_callback\n         )\n \n \n@@ -168,13 +183,13 @@ class BoundCacheDownloader:\n     def __init__(\n         self,\n         file_url: str,\n-        filename: str | None,\n         downloader: CacheDownloader,\n         *,\n+        filename: str | None = None,\n         validation_callback: t.Callable[[bytes], t.Any] | None = None,\n     ) -> None:\n         self._file_url = file_url\n-        self._filename = filename or file_url.split(\"/\")[-1]\n+        self._filename = filename or url_to_cache_filename(file_url)\n         self._downloader = downloader\n         self._validation_callback = validation_callback\n \ndiff --git a/src/check_jsonschema/cli/main_command.py b/src/check_jsonschema/cli/main_command.py\nindex 3145019..3a7aae6 100644\n--- a/src/check_jsonschema/cli/main_command.py\n+++ b/src/check_jsonschema/cli/main_command.py\n@@ -130,11 +130,7 @@ The '--disable-formats' flag supports the following formats:\n     help=\"Disable schema caching. Always download remote schemas.\",\n )\n @click.option(\n-    \"--cache-filename\",\n-    help=(\n-        \"The name to use for caching a remote schema. \"\n-        \"Defaults to the last slash-delimited part of the URI.\"\n-    ),\n+    \"--cache-filename\", help=\"Deprecated. This option no longer has any effect.\"\n )\n @click.option(\n     \"--disable-formats\",\n@@ -271,8 +267,6 @@ def main(\n     args.disable_cache = no_cache\n     args.default_filetype = default_filetype\n     args.fill_defaults = fill_defaults\n-    if cache_filename is not None:\n-        args.cache_filename = cache_filename\n     if data_transform is not None:\n         args.data_transform = TRANSFORM_LIBRARY[data_transform]\n \n@@ -300,7 +294,6 @@ def build_schema_loader(args: ParseResult) -> SchemaLoaderBase:\n         assert args.schema_path is not None\n         return SchemaLoader(\n             args.schema_path,\n-            cache_filename=args.cache_filename,\n             disable_cache=args.disable_cache,\n             base_uri=args.base_uri,\n             validator_class=args.validator_class,\ndiff --git a/src/check_jsonschema/schema_loader/main.py b/src/check_jsonschema/schema_loader/main.py\nindex 88ff6a0..0991074 100644\n--- a/src/check_jsonschema/schema_loader/main.py\n+++ b/src/check_jsonschema/schema_loader/main.py\n@@ -64,14 +64,12 @@ class SchemaLoader(SchemaLoaderBase):\n         self,\n         schemafile: str,\n         *,\n-        cache_filename: str | None = None,\n         base_uri: str | None = None,\n         validator_class: type[jsonschema.protocols.Validator] | None = None,\n         disable_cache: bool = True,\n     ) -> None:\n         # record input parameters (these are not to be modified)\n         self.schemafile = schemafile\n-        self.cache_filename = cache_filename\n         self.disable_cache = disable_cache\n         self.base_uri = base_uri\n         self.validator_class = validator_class\n@@ -105,11 +103,7 @@ class SchemaLoader(SchemaLoaderBase):\n             return LocalSchemaReader(self.schemafile)\n \n         if self.url_info.scheme in (\"http\", \"https\"):\n-            return HttpSchemaReader(\n-                self.schemafile,\n-                self.cache_filename,\n-                self.disable_cache,\n-            )\n+            return HttpSchemaReader(self.schemafile, self.disable_cache)\n         else:\n             raise UnsupportedUrlScheme(\n                 \"check-jsonschema only supports http, https, and local files. \"\ndiff --git a/src/check_jsonschema/schema_loader/readers.py b/src/check_jsonschema/schema_loader/readers.py\nindex 6528080..6129935 100644\n--- a/src/check_jsonschema/schema_loader/readers.py\n+++ b/src/check_jsonschema/schema_loader/readers.py\n@@ -73,14 +73,13 @@ class HttpSchemaReader:\n     def __init__(\n         self,\n         url: str,\n-        cache_filename: str | None,\n         disable_cache: bool,\n     ) -> None:\n         self.url = url\n         self.parsers = ParserSet()\n-        self.downloader = CacheDownloader(\n-            disable_cache=disable_cache,\n-        ).bind(url, cache_filename, validation_callback=self._parse)\n+        self.downloader = CacheDownloader(\"schemas\", disable_cache=disable_cache).bind(\n+            url, validation_callback=self._parse\n+        )\n         self._parsed_schema: dict | _UnsetType = _UNSET\n \n     def _parse(self, schema_bytes: bytes) -> t.Any:\ndiff --git a/src/check_jsonschema/schema_loader/resolver.py b/src/check_jsonschema/schema_loader/resolver.py\nindex 5084328..15344d6 100644\n--- a/src/check_jsonschema/schema_loader/resolver.py\n+++ b/src/check_jsonschema/schema_loader/resolver.py\n@@ -1,6 +1,5 @@\n from __future__ import annotations\n \n-import hashlib\n import typing as t\n import urllib.parse\n \n@@ -12,21 +11,6 @@ from ..parsers import ParserSet\n from ..utils import filename2path\n \n \n-def ref_url_to_cache_filename(ref_url: str) -> str:\n-    \"\"\"\n-    Given a $ref URL, convert it to the filename in the refs/ cache dir.\n-    Rules are as follows:\n-    - the base filename is an md5 hash of the URL\n-    - if the filename ends in an extension (.json, .yaml, etc) that extension\n-      is appended to the hash\n-    \"\"\"\n-    filename = hashlib.md5(ref_url.encode()).hexdigest()\n-    if \".\" in (last_part := ref_url.rpartition(\"/\")[-1]):\n-        _, _, extension = last_part.rpartition(\".\")\n-        filename = f\"{filename}.{extension}\"\n-    return filename\n-\n-\n def make_reference_registry(\n     parsers: ParserSet, retrieval_uri: str | None, schema: dict, disable_cache: bool\n ) -> referencing.Registry:\n@@ -66,7 +50,7 @@ def create_retrieve_callable(\n         base_uri = retrieval_uri\n \n     cache = ResourceCache()\n-    downloader = CacheDownloader(\"refs\", disable_cache)\n+    downloader = CacheDownloader(\"refs\", disable_cache=disable_cache)\n \n     def get_local_file(uri: str) -> t.Any:\n         path = filename2path(uri)\n@@ -89,9 +73,7 @@ def create_retrieve_callable(\n                 parser_set.parse_data_with_path(content, full_uri, \"json\")\n \n             bound_downloader = downloader.bind(\n-                full_uri,\n-                ref_url_to_cache_filename(full_uri),\n-                validation_callback,\n+                full_uri, validation_callback=validation_callback\n             )\n             with bound_downloader.open() as fp:\n                 data = fp.read()\n",
+  "test_patch": "diff --git a/tests/conftest.py b/tests/conftest.py\nindex 9179f6e..b0022a8 100644\n--- a/tests/conftest.py\n+++ b/tests/conftest.py\n@@ -62,15 +62,25 @@ def patch_cache_dir(monkeypatch, cache_dir):\n         yield m\n \n \n+@pytest.fixture\n+def url2cachepath():\n+    from check_jsonschema.cachedownloader import url_to_cache_filename\n+\n+    def _get(cache_dir, url):\n+        return cache_dir / url_to_cache_filename(url)\n+\n+    return _get\n+\n+\n @pytest.fixture\n def downloads_cache_dir(tmp_path):\n     return tmp_path / \".cache\" / \"check_jsonschema\" / \"downloads\"\n \n \n @pytest.fixture\n-def get_download_cache_loc(downloads_cache_dir):\n-    def _get(uri):\n-        return downloads_cache_dir / uri.split(\"/\")[-1]\n+def get_download_cache_loc(downloads_cache_dir, url2cachepath):\n+    def _get(url):\n+        return url2cachepath(downloads_cache_dir, url)\n \n     return _get\n \n@@ -94,11 +104,9 @@ def refs_cache_dir(tmp_path):\n \n \n @pytest.fixture\n-def get_ref_cache_loc(refs_cache_dir):\n-    from check_jsonschema.schema_loader.resolver import ref_url_to_cache_filename\n-\n-    def _get(uri):\n-        return refs_cache_dir / ref_url_to_cache_filename(uri)\n+def get_ref_cache_loc(refs_cache_dir, url2cachepath):\n+    def _get(url):\n+        return url2cachepath(refs_cache_dir, url)\n \n     return _get\n \ndiff --git a/tests/unit/test_cachedownloader.py b/tests/unit/test_cachedownloader.py\nindex 30d4705..1a0949a 100644\n--- a/tests/unit/test_cachedownloader.py\n+++ b/tests/unit/test_cachedownloader.py\n@@ -11,13 +11,16 @@ from check_jsonschema.cachedownloader import (\n     CacheDownloader,\n     FailedDownloadError,\n     _cache_hit,\n+    url_to_cache_filename,\n )\n \n+DEFAULT_RESPONSE_URL = \"https://example.com/schema1.json\"\n+\n \n def add_default_response():\n     responses.add(\n         \"GET\",\n-        \"https://example.com/schema1.json\",\n+        DEFAULT_RESPONSE_URL,\n         headers={\"Last-Modified\": \"Sun, 01 Jan 2000 00:00:01 GMT\"},\n         json={},\n         match_querystring=None,\n@@ -30,8 +33,8 @@ def default_response():\n \n \n def test_default_filename_from_uri(default_response):\n-    cd = CacheDownloader().bind(\"https://example.com/schema1.json\")\n-    assert cd._filename == \"schema1.json\"\n+    cd = CacheDownloader(\"downloads\").bind(DEFAULT_RESPONSE_URL)\n+    assert cd._filename == url_to_cache_filename(DEFAULT_RESPONSE_URL)\n \n \n @pytest.mark.parametrize(\n@@ -76,7 +79,7 @@ def test_default_cache_dir(\n     monkeypatch.setattr(platform, \"system\", fakesystem)\n     monkeypatch.setattr(os.path, \"expanduser\", fake_expanduser)\n \n-    cd = CacheDownloader()\n+    cd = CacheDownloader(\"downloads\")\n     assert cd._cache_dir == expect_value\n \n     if sysname == \"Darwin\":\n@@ -94,7 +97,7 @@ def test_cache_hit_by_mtime(monkeypatch, default_response):\n     monkeypatch.setattr(os.path, \"getmtime\", lambda x: time.time())\n     assert _cache_hit(\n         \"/tmp/schema1.json\",\n-        requests.get(\"https://example.com/schema1.json\", stream=True),\n+        requests.get(DEFAULT_RESPONSE_URL, stream=True),\n     )\n \n     # local mtime = 0, cache miss\n@@ -102,7 +105,7 @@ def test_cache_hit_by_mtime(monkeypatch, default_response):\n     assert (\n         _cache_hit(\n             \"/tmp/schema1.json\",\n-            requests.get(\"https://example.com/schema1.json\", stream=True),\n+            requests.get(DEFAULT_RESPONSE_URL, stream=True),\n         )\n         is False\n     )\n@@ -114,7 +117,7 @@ def test_cachedownloader_cached_file(tmp_path, monkeypatch, default_response):\n     f.write_text(\"{}\")\n \n     # set the cache_dir to the tmp dir (so that cache_dir will always be set)\n-    cd = CacheDownloader(cache_dir=tmp_path).bind(str(f))\n+    cd = CacheDownloader(tmp_path).bind(str(f), filename=\"foo.json\")\n     # patch the downloader to skip any download \"work\"\n     monkeypatch.setattr(\n         cd._downloader, \"_download\", lambda file_uri, filename, response_ok: str(f)\n@@ -125,11 +128,12 @@ def test_cachedownloader_cached_file(tmp_path, monkeypatch, default_response):\n \n \n @pytest.mark.parametrize(\"disable_cache\", (True, False))\n-def test_cachedownloader_on_success(get_download_cache_loc, disable_cache):\n-    add_default_response()\n-    f = get_download_cache_loc(\"schema1.json\")\n-    cd = CacheDownloader(disable_cache=disable_cache).bind(\n-        \"https://example.com/schema1.json\"\n+def test_cachedownloader_on_success(\n+    get_download_cache_loc, disable_cache, default_response\n+):\n+    f = get_download_cache_loc(DEFAULT_RESPONSE_URL)\n+    cd = CacheDownloader(\"downloads\", disable_cache=disable_cache).bind(\n+        DEFAULT_RESPONSE_URL\n     )\n \n     with cd.open() as fp:\n@@ -140,10 +144,12 @@ def test_cachedownloader_on_success(get_download_cache_loc, disable_cache):\n         assert f.exists()\n \n \n-def test_cachedownloader_using_alternate_target_dir(cache_dir):\n-    add_default_response()\n-    f = cache_dir / \"check_jsonschema\" / \"otherdir\" / \"schema1.json\"\n-    cd = CacheDownloader(\"otherdir\").bind(\"https://example.com/schema1.json\")\n+def test_cachedownloader_using_alternate_target_dir(\n+    cache_dir, default_response, url2cachepath\n+):\n+    cache_dir = cache_dir / \"check_jsonschema\" / \"otherdir\"\n+    f = url2cachepath(cache_dir, DEFAULT_RESPONSE_URL)\n+    cd = CacheDownloader(\"otherdir\").bind(DEFAULT_RESPONSE_URL)\n     with cd.open() as fp:\n         assert fp.read() == b\"{}\"\n     assert f.exists()\n@@ -158,21 +164,21 @@ def test_cachedownloader_succeeds_after_few_errors(\n         for _i in range(failures):\n             responses.add(\n                 \"GET\",\n-                \"https://example.com/schema1.json\",\n+                DEFAULT_RESPONSE_URL,\n                 status=500,\n                 match_querystring=None,\n             )\n     else:\n         responses.add(\n             \"GET\",\n-            \"https://example.com/schema1.json\",\n+            DEFAULT_RESPONSE_URL,\n             body=failures(),\n             match_querystring=None,\n         )\n     add_default_response()\n-    f = get_download_cache_loc(\"schema1.json\")\n-    cd = CacheDownloader(disable_cache=disable_cache).bind(\n-        \"https://example.com/schema1.json\"\n+    f = get_download_cache_loc(DEFAULT_RESPONSE_URL)\n+    cd = CacheDownloader(\"downloads\", disable_cache=disable_cache).bind(\n+        DEFAULT_RESPONSE_URL\n     )\n \n     with cd.open() as fp:\n@@ -192,21 +198,21 @@ def test_cachedownloader_fails_after_many_errors(\n         if connection_error:\n             responses.add(\n                 \"GET\",\n-                \"https://example.com/schema1.json\",\n+                DEFAULT_RESPONSE_URL,\n                 body=requests.ConnectionError(),\n                 match_querystring=None,\n             )\n         else:\n             responses.add(\n                 \"GET\",\n-                \"https://example.com/schema1.json\",\n+                DEFAULT_RESPONSE_URL,\n                 status=500,\n                 match_querystring=None,\n             )\n     add_default_response()  # never reached, the 11th response\n-    f = get_download_cache_loc(\"schema1.json\")\n-    cd = CacheDownloader(disable_cache=disable_cache).bind(\n-        \"https://example.com/schema1.json\"\n+    f = get_download_cache_loc(DEFAULT_RESPONSE_URL)\n+    cd = CacheDownloader(\"downloads\", disable_cache=disable_cache).bind(\n+        DEFAULT_RESPONSE_URL\n     )\n     with pytest.raises(FailedDownloadError):\n         with cd.open():\n@@ -218,18 +224,18 @@ def test_cachedownloader_fails_after_many_errors(\n def test_cachedownloader_retries_on_bad_data(get_download_cache_loc, disable_cache):\n     responses.add(\n         \"GET\",\n-        \"https://example.com/schema1.json\",\n+        DEFAULT_RESPONSE_URL,\n         status=200,\n         body=\"{\",\n         match_querystring=None,\n     )\n     add_default_response()\n-    f = get_download_cache_loc(\"schema1.json\")\n+    f = get_download_cache_loc(DEFAULT_RESPONSE_URL)\n     cd = CacheDownloader(\n+        \"downloads\",\n         disable_cache=disable_cache,\n     ).bind(\n-        \"https://example.com/schema1.json\",\n-        filename=str(f),\n+        DEFAULT_RESPONSE_URL,\n         validation_callback=json.loads,\n     )\n \n@@ -253,13 +259,14 @@ def test_cachedownloader_handles_bad_lastmod_header(\n     file_exists,\n     failure_mode,\n ):\n-    uri = \"https://example.com/schema1.json\"\n     if failure_mode == \"header_missing\":\n-        responses.add(\"GET\", uri, headers={}, json={}, match_querystring=None)\n+        responses.add(\n+            \"GET\", DEFAULT_RESPONSE_URL, headers={}, json={}, match_querystring=None\n+        )\n     elif failure_mode == \"header_malformed\":\n         responses.add(\n             \"GET\",\n-            uri,\n+            DEFAULT_RESPONSE_URL,\n             headers={\"Last-Modified\": \"Jan 2000 00:00:01\"},\n             json={},\n             match_querystring=None,\n@@ -275,13 +282,13 @@ def test_cachedownloader_handles_bad_lastmod_header(\n         raise NotImplementedError\n \n     original_file_contents = b'{\"foo\": \"bar\"}'\n-    file_path = get_download_cache_loc(uri)\n+    file_path = get_download_cache_loc(DEFAULT_RESPONSE_URL)\n \n     assert not file_path.exists()\n     if file_exists:\n-        inject_cached_download(uri, original_file_contents)\n+        inject_cached_download(DEFAULT_RESPONSE_URL, original_file_contents)\n \n-    cd = CacheDownloader().bind(uri)\n+    cd = CacheDownloader(\"downloads\").bind(DEFAULT_RESPONSE_URL)\n \n     # if the file already existed, it will not be overwritten by the cachedownloader\n     # so the returned value for both the downloader and a direct file read should be the\n@@ -302,7 +309,7 @@ def test_cachedownloader_handles_bad_lastmod_header(\n \n \n def test_cachedownloader_validation_is_not_invoked_on_hit(\n-    monkeypatch, inject_cached_download\n+    monkeypatch, default_response, inject_cached_download\n ):\n     \"\"\"\n     Regression test for https://github.com/python-jsonschema/check-jsonschema/issues/453\n@@ -310,12 +317,10 @@ def test_cachedownloader_validation_is_not_invoked_on_hit(\n     This was a bug in which the validation callback was invoked eagerly, even on a cache\n     hit. As a result, cache hits did not demonstrate their expected performance gain.\n     \"\"\"\n-    uri = \"https://example.com/schema1.json\"\n-\n     # 1: construct some perfectly good data (it doesn't really matter what it is)\n-    add_default_response()\n+    #    <<default_response fixture>>\n     # 2: put equivalent data on disk\n-    inject_cached_download(uri, \"{}\")\n+    inject_cached_download(DEFAULT_RESPONSE_URL, \"{}\")\n \n     # 3: construct a validator which marks that it ran in a variable\n     validator_ran = False\n@@ -326,8 +331,8 @@ def test_cachedownloader_validation_is_not_invoked_on_hit(\n \n     # construct a downloader pointed at the schema and file, expecting a cache hit\n     # and use the above validation method\n-    cd = CacheDownloader().bind(\n-        \"https://example.com/schema1.json\",\n+    cd = CacheDownloader(\"downloads\").bind(\n+        DEFAULT_RESPONSE_URL,\n         validation_callback=dummy_validate_bytes,\n     )\n \n",
+  "summary": "check-jsonschema default caching for remote schemas allows for cache confusion",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `check-jsonschema` has a security vulnerability (CWE-349). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.unit.test_cachedownloader::test_cache_hit_by_mtime",
+    "tests.unit.test_cachedownloader::test_cachedownloader_cached_file",
+    "tests.unit.test_cachedownloader::test_cachedownloader_fails_after_many_errors[False-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_fails_after_many_errors[False-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_fails_after_many_errors[True-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_fails_after_many_errors[True-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[header_malformed-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[header_malformed-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[header_missing-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[header_missing-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[time_overflow-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_handles_bad_lastmod_header[time_overflow-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_on_success[False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_on_success[True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_retries_on_bad_data[False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_retries_on_bad_data[True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[1-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[1-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[2-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[2-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[ConnectionError-False]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_succeeds_after_few_errors[ConnectionError-True]",
+    "tests.unit.test_cachedownloader::test_cachedownloader_using_alternate_target_dir",
+    "tests.unit.test_cachedownloader::test_cachedownloader_validation_is_not_invoked_on_hit",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Darwin-fakeenv4-<expanduser>]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Linux-fakeenv5-<expanduser>]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Linux-fakeenv6-xdg-cache]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Windows-fakeenv0-None]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Windows-fakeenv1-localappdata]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Windows-fakeenv2-localappdata]",
+    "tests.unit.test_cachedownloader::test_default_cache_dir[Windows-fakeenv3-appdata]",
+    "tests.unit.test_cachedownloader::test_default_filename_from_uri"
+  ],
+  "p2p_tests": [],
+  "test_files": [
+    "tests/conftest.py",
+    "tests/unit/test_cachedownloader.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 0,
+  "n_after_pass": 32,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-q6mv-284r-mp36",
+      "summary": "check-jsonschema default caching for remote schemas allows for cache confusion",
+      "details": "### Impact\n\nThe default cache strategy uses the basename of a remote schema as the name of the file in the cache, e.g. `https://example.org/schema.json` will be stored as `schema.json`. This naming allows for conflicts. If an attacker can get a user to run `check-jsonschema` against a malicious schema URL, e.g., `https://example.evil.org/schema.json`, they can insert their own schema into the cache and it will be picked up and used instead of the appropriate schema.\n\nSuch a cache confusion attack could be used to allow data to pass validation which should have been rejected.\n\n### Patches\n\nA patch is in progress but has not yet been released.\n\n### Workarounds\n\n- Users can use `--no-cache` to disable caching.\n- Users can use `--cache-filename` to select filenames for use in the cache, or to ensure that other usages do not overwrite the cached schema. (Note: this flag is being deprecated as part of the remediation effort.)\n- Users can explicitly download the schema before use as a local file, as in `curl -LOs https://example.org/schema.json; check-jsonschema --schemafile ./schema.json`",
+      "aliases": [
+        "CVE-2024-53848",
+        "PYSEC-2026-1245"
+      ],
+      "published": "2024-12-02T17:29:05Z",
+      "modified": "2026-07-07T17:56:52.820881211Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-349"
+      ],
+      "affected": [
+        {
+          "package": "check-jsonschema",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.30.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/python-jsonschema/check-jsonschema/security/advisories/GHSA-q6mv-284r-mp36"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-53848"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/python-jsonschema/check-jsonschema/commit/c52714b85e6725b1b24516fbdedacb333b939152"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/python-jsonschema/check-jsonschema"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-q6mv-284r-mp36",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "c52714b85e6725b1b24516fbdedacb333b939152",
+      "authored_at": "2024-11-29T08:19:34-06:00",
+      "committed_at": "2024-11-29T08:19:34-06:00",
+      "message": "Merge pull request #503 from python-jsonschema/fix-caching\n\nFix caching behavior to always use hashed URLs for the cache filenames",
+      "url": "https://github.com/python-jsonschema/check-jsonschema/commit/c52714b85e6725b1b24516fbdedacb333b939152"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 503,
+        "url": "https://github.com/python-jsonschema/check-jsonschema/pull/503",
+        "title": "Fix caching behavior to always use hashed URLs for the cache filenames",
+        "body": "_This change fixes a significant bug in caching behavior._\r\nCross-link: resolves https://github.com/python-jsonschema/check-jsonschema/security/advisories/GHSA-q6mv-284r-mp36\r\n\r\n### Why\r\n\r\nUnder the pre-existing default behavior, two different remote (HTTPS) schemas with the same filename would be cached under the same local filename. e.g., `https://example.com/foo/schema.json` and `https://example.com/bar/schema.json` both cache as `schema.json`.\r\nAs a result, cache confusion / poisoning issues would easily occur for users interacting with these schemas.\r\n\r\nPrior to this change, users would either have to disable caching or use `--cache-filename` to get correct caching behavior.\r\n\r\n### What\r\n\r\nTo fix, caching is changed here to always use URL hashes, as was developed for the `refs/` cache.\r\nThis behavior is refined and relocated to be used by both caching paths in the codebase.\r\n\r\nThe `--cache-filename` option is no longer important or useful to support, so it is made non-functional and deprecated in this release.\r\nIt will be removed in a future release; timeline TBD.\r\n\r\n### Additional Notes\r\n\r\nBoth caching codepaths -- initial schema and refs -- now use sha256 hashing. This results in a mild (read: negligible) slowdown in exchange for driving the risk of a collision even lower, to effectively 0.\r\n\r\nNo effort is made to \"clean up\" stale files in the cache. As documented, users can always blow the whole cache, as in `rm -r ~/.cache/check_jsonschema`, if they want to remove these files.\r\nCache cleanup would also play poorly with users who have different tool versions installed simultaneously in different projects.\r\n\r\nI tried some implementation options which required a more significant refactor of the caching layer, but discarded them as\r\n\r\n- not offering enough benefit\r\n- posing too high of a risk of breakage / getting something wrong\r\n- requiring more thought and care\r\n\r\nwhich evaluate negatively against the criterion of \"ship a bugfix confidently and expeditiously so that users can upgrade\".\r\n",
+        "merged_at": "2024-11-29T14:19:34Z",
+        "merge_commit_sha": "c52714b85e6725b1b24516fbdedacb333b939152"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:52:15+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

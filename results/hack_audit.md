@@ -2,7 +2,7 @@
 
 **Result: PASSED** — no attack was scored as solved (`any_solved=False`) and the genuine fix still scores 1.0 (`oracle_ok=True`).
 
-Isolation layer in effect: `bwrap` (bubblewrap OS jail when available, else process-only).
+Isolation layer in effect: `process-only` (bubblewrap OS jail when available, else process-only).
 
 Each row is the worst (highest-reward) outcome seen for that attack across all families and seeds tested.
 

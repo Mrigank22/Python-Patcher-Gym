@@ -1,0 +1,160 @@
+{
+  "id": "PYSEC-2020-197",
+  "aliases": [],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "waitress",
+  "repo": {
+    "owner": "Pylons",
+    "name": "waitress",
+    "url": "https://github.com/Pylons/waitress"
+  },
+  "base_commit": "804e3133a54088fc879c5e791bbe14bb8eb625f9",
+  "fix_commit": "575994cd42e83fd772a5f7ec98b2c56751bd3f65",
+  "python_requires": "",
+  "changed_source_files": [
+    "waitress/parser.py"
+  ],
+  "changed_test_files": [
+    "waitress/tests/test_parser.py"
+  ],
+  "source_patch": "diff --git a/waitress/parser.py b/waitress/parser.py\nindex e2970cb..c537964 100644\n--- a/waitress/parser.py\n+++ b/waitress/parser.py\n@@ -254,7 +254,8 @@ class HTTPRequestParser(object):\n             try:\n                 cl = int(headers.get(\"CONTENT_LENGTH\", 0))\n             except ValueError:\n-                cl = 0\n+                raise ParsingError(\"Content-Length is invalid\")\n+\n             self.content_length = cl\n             if cl > 0:\n                 buf = OverflowableBuffer(self.adj.inbuf_overflow)\n",
+  "test_patch": "diff --git a/waitress/tests/test_parser.py b/waitress/tests/test_parser.py\nindex 463e0b2..aa01d9d 100644\n--- a/waitress/tests/test_parser.py\n+++ b/waitress/tests/test_parser.py\n@@ -167,9 +167,28 @@ class TestHTTPRequestParser(unittest.TestCase):\n             self.assertTrue(False)\n \n     def test_parse_header_bad_content_length(self):\n+        from waitress.parser import ParsingError\n+\n         data = b\"GET /foobar HTTP/8.4\\r\\ncontent-length: abc\\r\\n\"\n-        self.parser.parse_header(data)\n-        self.assertEqual(self.parser.body_rcv, None)\n+\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Content-Length is invalid\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n+\n+    def test_parse_header_multiple_content_length(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/8.4\\r\\ncontent-length: 10\\r\\ncontent-length: 20\\r\\n\"\n+\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Content-Length is invalid\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n \n     def test_parse_header_11_te_chunked(self):\n         # NB: test that capitalization of header value is unimportant\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `waitress` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_bad_content_length",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_multiple_content_length"
+  ],
+  "p2p_tests": [
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_close_with_body_rcv",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_close_with_no_body_rcv",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_get_body_stream_None",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_get_body_stream_nonNone",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_11_expect_continue",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_11_te_chunked",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_connection_close",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_cr_only",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_extra_lf_in_first_line",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_extra_lf_in_header",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_gardenpath",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_whitespace",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_lf_only",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_no_cr_in_headerplus",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_already_completed",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_bad_host_header",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_body_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_chunked_completed_sets_content_length",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_cl_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_error_from_parser",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_get_no_headers",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_headers_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_no_doublecr",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_nonsense_nothing",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testComplexGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testDuplicateHeaders",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testProxyGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testSimpleGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testSpoofedHeadersDropped",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_lowercase_method",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_matchok",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_missing_version",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_nomatch",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_folded",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_malformed",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_tabbed",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path_query",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path_query_fragment",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unicode_error_raises_parsing_error",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unquoting_needed",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unquoting_unneeded",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_https",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_fragment",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_query",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_query_empty"
+  ],
+  "test_files": [
+    "waitress/tests/test_parser.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 47,
+  "n_after_pass": 49,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2020-197",
+      "summary": "",
+      "details": "Waitress through version 1.3.1 allows request smuggling by sending the Content-Length header twice. Waitress would header fold a double Content-Length header and due to being unable to cast the now comma separated value to an integer would set the Content-Length to 0 internally. If two Content-Length headers are sent in a single request, Waitress would treat the request as having no body, thereby treating the body of the request as a new request in HTTP pipelining. This issue is fixed in Waitress 1.4.0.",
+      "aliases": [],
+      "published": "2020-01-22T19:15:00Z",
+      "modified": "2023-03-14T07:01:09.423920Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "waitress",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/Pylons/waitress",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "575994cd42e83fd772a5f7ec98b2c56751bd3f65"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.4.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://docs.pylonsproject.org/projects/waitress/en/latest/#security-fixes"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/waitress/commit/575994cd42e83fd772a5f7ec98b2c56751bd3f65"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/waitress/security/advisories/GHSA-4ppp-gpcr-7qf6"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2020-197",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "575994cd42e83fd772a5f7ec98b2c56751bd3f65",
+      "authored_at": "2019-12-12T18:19:40-08:00",
+      "committed_at": "2019-12-19T15:59:58+01:00",
+      "message": "Upon receiving invalid Content-Length bail\n\nInstead of attempting to continue processing the request, we instead\nraise a ParsingError and return a HTTP Bad Request to the client.\n\nThis also catches the case where two Content-Length's are sent, and are\nfolded together using HTTP header folding.",
+      "url": "https://github.com/Pylons/waitress/commit/575994cd42e83fd772a5f7ec98b2c56751bd3f65"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:52:35+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

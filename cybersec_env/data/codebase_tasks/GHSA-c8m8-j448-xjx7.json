@@ -1,0 +1,145 @@
+{
+  "id": "GHSA-c8m8-j448-xjx7",
+  "aliases": [
+    "CVE-2024-41671",
+    "PYSEC-2026-1992"
+  ],
+  "cwes": [
+    "CWE-444"
+  ],
+  "severity": "MODERATE",
+  "package": "twisted",
+  "repo": {
+    "owner": "twisted",
+    "name": "twisted",
+    "url": "https://github.com/twisted/twisted"
+  },
+  "base_commit": "4a930de12fb67e88fefcb8822104152f42b27abc",
+  "fix_commit": "046a164f89a0f08d3239ecebd750360f8914df33",
+  "python_requires": ">=3.8.0",
+  "changed_source_files": [
+    "src/twisted/web/_template_util.py"
+  ],
+  "changed_test_files": [
+    "src/twisted/web/test/test_util.py"
+  ],
+  "source_patch": "diff --git a/src/twisted/web/_template_util.py b/src/twisted/web/_template_util.py\nindex f4c4aba..501941a 100644\n--- a/src/twisted/web/_template_util.py\n+++ b/src/twisted/web/_template_util.py\n@@ -92,7 +92,7 @@ def redirectTo(URL: bytes, request: IRequest) -> bytes:\n     </body>\n </html>\n \"\"\" % {\n-        b\"url\": URL\n+        b\"url\": escape(URL.decode(\"utf-8\")).encode(\"utf-8\")\n     }\n     return content\n \n",
+  "test_patch": "diff --git a/src/twisted/web/test/test_util.py b/src/twisted/web/test/test_util.py\nindex 1e76300..9847dcb 100644\n--- a/src/twisted/web/test/test_util.py\n+++ b/src/twisted/web/test/test_util.py\n@@ -5,7 +5,6 @@\n Tests for L{twisted.web.util}.\n \"\"\"\n \n-\n import gc\n \n from twisted.internet import defer\n@@ -64,6 +63,44 @@ class RedirectToTests(TestCase):\n         targetURL = \"http://target.example.com/4321\"\n         self.assertRaises(TypeError, redirectTo, targetURL, request)\n \n+    def test_legitimateRedirect(self):\n+        \"\"\"\n+        Legitimate URLs are fully interpolated in the `redirectTo` response body without transformation\n+        \"\"\"\n+        request = DummyRequest([b\"\"])\n+        html = redirectTo(b\"https://twisted.org/\", request)\n+        expected = b\"\"\"\n+<html>\n+    <head>\n+        <meta http-equiv=\\\"refresh\\\" content=\\\"0;URL=https://twisted.org/\\\">\n+    </head>\n+    <body bgcolor=\\\"#FFFFFF\\\" text=\\\"#000000\\\">\n+    <a href=\\\"https://twisted.org/\\\">click here</a>\n+    </body>\n+</html>\n+\"\"\"\n+        self.assertEqual(html, expected)\n+\n+    def test_maliciousRedirect(self):\n+        \"\"\"\n+        Malicious URLs are HTML-escaped before interpolating them in the `redirectTo` response body\n+        \"\"\"\n+        request = DummyRequest([b\"\"])\n+        html = redirectTo(\n+            b'https://twisted.org/\"><script>alert(document.location)</script>', request\n+        )\n+        expected = b\"\"\"\n+<html>\n+    <head>\n+        <meta http-equiv=\\\"refresh\\\" content=\\\"0;URL=https://twisted.org/&quot;&gt;&lt;script&gt;alert(document.location)&lt;/script&gt;\\\">\n+    </head>\n+    <body bgcolor=\\\"#FFFFFF\\\" text=\\\"#000000\\\">\n+    <a href=\\\"https://twisted.org/&quot;&gt;&lt;script&gt;alert(document.location)&lt;/script&gt;\\\">click here</a>\n+    </body>\n+</html>\n+\"\"\"\n+        self.assertEqual(html, expected)\n+\n \n class ParentRedirectTests(SynchronousTestCase):\n     \"\"\"\n",
+  "summary": "twisted.web has disordered HTTP pipeline response",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `twisted` has a security vulnerability (CWE-444). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "src.twisted.web.test.test_util.RedirectToTests::test_maliciousRedirect"
+  ],
+  "p2p_tests": [
+    "src.twisted.web.test.test_util.DeferredResourceTests::testDeferredResource",
+    "src.twisted.web.test.test_util.DeferredResourceTests::test_render",
+    "src.twisted.web.test.test_util.DeferredResourceTests::test_renderNoFailure",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementTraceback",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementType",
+    "src.twisted.web.test.test_util.FailureElementTests::test_failureElementValue",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementFilename",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementFunction",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementLineNumber",
+    "src.twisted.web.test.test_util.FailureElementTests::test_frameElementSource",
+    "src.twisted.web.test.test_util.FailureElementTests::test_sourceFragmentElement",
+    "src.twisted.web.test.test_util.FailureElementTests::test_sourceLineElement",
+    "src.twisted.web.test.test_util.FailureElementTests::test_stackElement",
+    "src.twisted.web.test.test_util.FormatFailureTests::test_flattenerError",
+    "src.twisted.web.test.test_util.FormatFailureTests::test_returnsBytes",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationRoot",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationToRoot",
+    "src.twisted.web.test.test_util.ParentRedirectTests::test_locationUpOne",
+    "src.twisted.web.test.test_util.RedirectToTests::test_headersAndCode",
+    "src.twisted.web.test.test_util.RedirectToTests::test_legitimateRedirect",
+    "src.twisted.web.test.test_util.RedirectToTests::test_redirectToUnicodeURL"
+  ],
+  "test_files": [
+    "src/twisted/web/test/test_util.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 21,
+  "n_after_pass": 22,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-c8m8-j448-xjx7",
+      "summary": "twisted.web has disordered HTTP pipeline response",
+      "details": "### Summary\n\nThe HTTP 1.0 and 1.1 server provided by twisted.web could process pipelined HTTP requests out-of-order, possibly resulting in information disclosure.\n\n### PoC\n0. Start a fresh Debian container:\n```sh\ndocker run --workdir /repro --rm -it debian:bookworm-slim\n```\n1. Install twisted and its dependencies:\n```sh\napt -y update && apt -y install ncat git python3 python3-pip \\\n    && git clone --recurse-submodules https://github.com/twisted/twisted \\\n    && cd twisted \\\n    && pip3 install --break-system-packages .\n```\n2. Run a twisted.web HTTP server that echos received requests' methods. e.g., the following:\n```python\nfrom twisted.web import server, resource\nfrom twisted.internet import reactor\n\nclass TheResource(resource.Resource):\n    isLeaf = True\n\n    def render_GET(self, request) -> bytes:\n        return b\"GET\"\n\n    def render_POST(self, request) -> bytes:\n        return b\"POST\"\n\nsite = server.Site(TheResource())\nreactor.listenTCP(80, site)\nreactor.run()\n```\n3. Send it a POST request with a chunked message body, pipelined with another POST request, wait a second, then send a GET request on the same connection:\n```sh\n(printf 'POST / HTTP/1.1\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\nPOST / HTTP/1.1\\r\\nContent-Length: 0\\r\\n\\r\\n'; sleep 1; printf 'GET / HTTP/1.1\\r\\n\\r\\n'; sleep 1) | nc localhost 80\n```\n4. Observe that the responses arrive out of order:\n```\nHTTP/1.1 200 OK\nServer: TwistedWeb/24.3.0.post0\nDate: Tue, 09 Jul 2024 06:19:41 GMT\nContent-Length: 5\nContent-Type: text/html\n\nPOST\nHTTP/1.1 200 OK\nServer: TwistedWeb/24.3.0.post0\nDate: Tue, 09 Jul 2024 06:19:42 GMT\nContent-Length: 4\nContent-Type: text/html\n\nGET\nHTTP/1.1 200 OK\nServer: TwistedWeb/24.3.0.post0\nDate: Tue, 09 Jul 2024 06:19:42 GMT\nContent-Length: 5\nContent-Type: text/html\n\nPOST\n```\n\n### Impact\nSee [GHSA-xc8x-vp79-p3wm](https://github.com/twisted/twisted/security/advisories/GHSA-xc8x-vp79-p3wm). Further, for instances of twisted.web HTTP servers deployed behind reverse proxies that implement connection pooling, it may be possible for remote attackers to receive responses intended for other clients of the twisted.web server.",
+      "aliases": [
+        "CVE-2024-41671",
+        "PYSEC-2026-1992"
+      ],
+      "published": "2024-07-29T16:33:11Z",
+      "modified": "2026-07-07T17:56:49.021057189Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "package": "twisted",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "24.7.0rc1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/security/advisories/GHSA-c8m8-j448-xjx7"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-41671"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/commit/046a164f89a0f08d3239ecebd750360f8914df33"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/commit/4a930de12fb67e88fefcb8822104152f42b27abc"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/twisted/twisted"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2024/11/msg00028.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.vicarius.io/vsociety/posts/disordered-http-pipeline-in-twistedweb-cve-2024-4167"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-c8m8-j448-xjx7",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "046a164f89a0f08d3239ecebd750360f8914df33",
+      "authored_at": "2024-07-29T14:28:03+01:00",
+      "committed_at": "2024-07-29T14:28:03+01:00",
+      "message": "Merge commit from fork\n\nAdded HTML output encoding the \"URL\" parameter of the \"redirectTo\" function",
+      "url": "https://github.com/twisted/twisted/commit/046a164f89a0f08d3239ecebd750360f8914df33"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:30+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

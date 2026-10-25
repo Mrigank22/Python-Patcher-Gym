@@ -1,0 +1,145 @@
+{
+  "id": "PYSEC-2024-186",
+  "aliases": [
+    "CVE-2024-47532",
+    "GHSA-5rfv-66g4-jr8h"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+  "package": "restrictedpython",
+  "repo": {
+    "owner": "zopefoundation",
+    "name": "RestrictedPython",
+    "url": "https://github.com/zopefoundation/RestrictedPython"
+  },
+  "base_commit": "57a2acb3ac7bfe320dcc8d7771f20710cd91bbe9",
+  "fix_commit": "d701cc36cccac36b21fa200f1f2d1945a9a215e6",
+  "python_requires": ">=3.7, <3.14",
+  "changed_source_files": [
+    "src/RestrictedPython/Utilities.py"
+  ],
+  "changed_test_files": [
+    "tests/builtins/test_utilities.py"
+  ],
+  "source_patch": "diff --git a/src/RestrictedPython/Utilities.py b/src/RestrictedPython/Utilities.py\nindex 10188e9..26d73d1 100644\n--- a/src/RestrictedPython/Utilities.py\n+++ b/src/RestrictedPython/Utilities.py\n@@ -29,7 +29,11 @@ class _AttributeDelegator:\n         if attr in self.__excludes:\n             raise NotImplementedError(\n                 f\"{self.__mod.__name__}.{attr} is not safe\")\n-        return getattr(self.__mod, attr)\n+        try:\n+            return getattr(self.__mod, attr)\n+        except AttributeError as e:\n+            e.obj = self\n+            raise\n \n \n utility_builtins['string'] = _AttributeDelegator(string, \"Formatter\")\n",
+  "test_patch": "diff --git a/tests/builtins/test_utilities.py b/tests/builtins/test_utilities.py\nindex 1ad26d7..0d3992e 100644\n--- a/tests/builtins/test_utilities.py\n+++ b/tests/builtins/test_utilities.py\n@@ -7,8 +7,17 @@ def test_string_in_utility_builtins():\n     from RestrictedPython.Utilities import utility_builtins\n \n     # we no longer provide access to ``string`` itself, only to\n-    # a restricted view of it\n-    assert utility_builtins['string'].__name__ == string.__name__\n+    # a restricted view of it (``rstring``)\n+    rstring = utility_builtins['string']\n+    assert rstring.__name__ == string.__name__\n+\n+    # ensure it does not provide access to ``string`` via\n+    # ``AttributeError.obj``\n+    try:\n+        rstring.unexisting_attribute\n+    except AttributeError as e:\n+        assert e.obj is rstring\n+        \n \n \n def test_math_in_utility_builtins():\n",
+  "summary": "",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `restrictedpython` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.builtins.test_utilities::test_string_in_utility_builtins"
+  ],
+  "p2p_tests": [
+    "tests.builtins.test_utilities::test_DateTime_in_utility_builtins_if_importable",
+    "tests.builtins.test_utilities::test_frozenset_in_utility_builtins",
+    "tests.builtins.test_utilities::test_math_in_utility_builtins",
+    "tests.builtins.test_utilities::test_random_in_utility_builtins",
+    "tests.builtins.test_utilities::test_reorder_in_utility_builtins",
+    "tests.builtins.test_utilities::test_reorder_with__None",
+    "tests.builtins.test_utilities::test_reorder_with__not_None",
+    "tests.builtins.test_utilities::test_same_type_in_utility_builtins",
+    "tests.builtins.test_utilities::test_sametype_only_multipe_args_one_different",
+    "tests.builtins.test_utilities::test_sametype_only_multiple_args_same",
+    "tests.builtins.test_utilities::test_sametype_only_one_arg",
+    "tests.builtins.test_utilities::test_sametype_only_two_args_different",
+    "tests.builtins.test_utilities::test_sametype_only_two_args_same",
+    "tests.builtins.test_utilities::test_set_in_utility_builtins",
+    "tests.builtins.test_utilities::test_test_even_values_first_true",
+    "tests.builtins.test_utilities::test_test_even_values_not_first_true",
+    "tests.builtins.test_utilities::test_test_in_utility_builtins",
+    "tests.builtins.test_utilities::test_test_odd_values_first_true",
+    "tests.builtins.test_utilities::test_test_odd_values_last_false",
+    "tests.builtins.test_utilities::test_test_odd_values_last_true",
+    "tests.builtins.test_utilities::test_test_odd_values_not_first_true",
+    "tests.builtins.test_utilities::test_test_single_value_False",
+    "tests.builtins.test_utilities::test_test_single_value_true",
+    "tests.builtins.test_utilities::test_whrandom_in_utility_builtins"
+  ],
+  "test_files": [
+    "tests/builtins/test_utilities.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 24,
+  "n_after_pass": 25,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2024-186",
+      "summary": "",
+      "details": "RestrictedPython is a restricted execution environment for Python to run untrusted code. A user can gain access to protected (and potentially sensible) information indirectly via AttributeError.obj and the string module. The problem will be fixed in version 7.3. As a workaround, If the application does not require access to the module string, it can remove it from RestrictedPython.Utilities.utility_builtins or otherwise do not make it available in the restricted execution environment.",
+      "aliases": [
+        "CVE-2024-47532",
+        "GHSA-5rfv-66g4-jr8h"
+      ],
+      "published": "2024-09-30T16:15:09Z",
+      "modified": "2025-01-19T04:56:54.776821Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "restrictedpython",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/zopefoundation/restrictedpython",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "d701cc36cccac36b21fa200f1f2d1945a9a215e6"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "7.3"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "EVIDENCE",
+          "url": "https://github.com/zopefoundation/RestrictedPython/security/advisories/GHSA-5rfv-66g4-jr8h"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/zopefoundation/RestrictedPython/commit/d701cc36cccac36b21fa200f1f2d1945a9a215e6"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2024-186",
+      "related_advisories": [
+        {
+          "id": "GHSA-5rfv-66g4-jr8h",
+          "summary": "RestrictedPython information leakage via `AttributeError.obj` and the `string` module",
+          "details": "### Impact\nA user can gain access to protected (and potentially sensible) information indirectly via `AttributeError.obj` and the `string` module.\n\n### Patches\nThe problem will be fixed in version 7.3.\n\n\n### Workarounds\nIf the application does not require access to the module `string`, it can remove it from `RestrictedPython.Utilities.utility_builtins`  or otherwise do not make it available in the restricted execution environment.\n",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-5rfv-66g4-jr8h"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "d701cc36cccac36b21fa200f1f2d1945a9a215e6",
+      "authored_at": "2024-09-30T08:58:30+02:00",
+      "committed_at": "2024-09-30T08:58:30+02:00",
+      "message": "Merge commit from fork",
+      "url": "https://github.com/zopefoundation/RestrictedPython/commit/d701cc36cccac36b21fa200f1f2d1945a9a215e6"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:41:13+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

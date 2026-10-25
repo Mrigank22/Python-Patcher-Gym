@@ -1,0 +1,216 @@
+{
+  "id": "GHSA-f8q4-jwww-x3wv",
+  "aliases": [
+    "CVE-2022-24302",
+    "PYSEC-2022-166"
+  ],
+  "cwes": [
+    "CWE-362"
+  ],
+  "severity": "HIGH",
+  "package": "paramiko",
+  "repo": {
+    "owner": "paramiko",
+    "name": "paramiko",
+    "url": "https://github.com/paramiko/paramiko"
+  },
+  "base_commit": "aa3cc6fa3e9f1df72d4ffd2d5fc02ae734a6cba4",
+  "fix_commit": "4c491e299c9b800358b16fa4886d8d94f45abe2e",
+  "python_requires": "",
+  "changed_source_files": [
+    "paramiko/pkey.py"
+  ],
+  "changed_test_files": [
+    "tests/test_pkey.py"
+  ],
+  "source_patch": "diff --git a/paramiko/pkey.py b/paramiko/pkey.py\nindex 7865a6e..6794526 100644\n--- a/paramiko/pkey.py\n+++ b/paramiko/pkey.py\n@@ -558,7 +558,17 @@ class PKey(object):\n \n         :raises: ``IOError`` -- if there was an error writing the file.\n         \"\"\"\n-        with open(filename, \"w\") as f:\n+        # Ensure that we create new key files directly with a user-only mode,\n+        # instead of opening, writing, then chmodding, which leaves us open to\n+        # CVE-2022-24302.\n+        # NOTE: O_TRUNC is a noop on new files, and O_CREAT is a noop on\n+        # existing files, so using all 3 in both cases is fine. Ditto the use\n+        # of the 'mode' argument; it should be safe to give even for existing\n+        # files (though it will not act like a chmod in that case).\n+        kwargs = dict(flags=os.O_WRONLY | os.O_TRUNC | os.O_CREAT, mode=o600)\n+        # NOTE: yea, you still gotta inform the FLO that it is in \"write\" mode\n+        with os.fdopen(os.open(filename, **kwargs), mode=\"w\") as f:\n+            # TODO 3.0: remove the now redundant chmod\n             os.chmod(filename, o600)\n             self._write_private_key(f, key, format, password=password)\n \n",
+  "test_patch": "diff --git a/tests/test_pkey.py b/tests/test_pkey.py\nindex 0cc2013..d44a96a 100644\n--- a/tests/test_pkey.py\n+++ b/tests/test_pkey.py\n@@ -23,6 +23,7 @@ Some unit tests for public/private key objects.\n \n import unittest\n import os\n+import stat\n from binascii import hexlify\n from hashlib import md5\n \n@@ -36,10 +37,11 @@ from paramiko import (\n     SSHException,\n )\n from paramiko.py3compat import StringIO, byte_chr, b, bytes, PY2\n+from paramiko.common import o600\n \n from cryptography.exceptions import UnsupportedAlgorithm\n from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateNumbers\n-from mock import patch\n+from mock import patch, Mock\n import pytest\n \n from .util import _support, is_low_entropy\n@@ -696,3 +698,57 @@ class KeyTest(unittest.TestCase):\n             key1.load_certificate,\n             _support(\"test_rsa.key-cert.pub\"),\n         )\n+\n+    @patch(\"paramiko.pkey.os\")\n+    def _test_keyfile_race(self, os_, exists):\n+        # Re: CVE-2022-24302\n+        password = \"television\"\n+        newpassword = \"radio\"\n+        source = _support(\"test_ecdsa_384.key\")\n+        new = source + \".new\"\n+        # Mock setup\n+        os_.path.exists.return_value = exists\n+        # Attach os flag values to mock\n+        for attr, value in vars(os).items():\n+            if attr.startswith(\"O_\"):\n+                setattr(os_, attr, value)\n+        # Load fixture key\n+        key = ECDSAKey(filename=source, password=password)\n+        key._write_private_key = Mock()\n+        # Write out in new location\n+        key.write_private_key_file(new, password=newpassword)\n+        # Expected open via os module\n+        os_.open.assert_called_once_with(new, flags=os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode=o600)\n+        os_.fdopen.assert_called_once_with(os_.open.return_value, mode=\"w\")\n+        # Old chmod still around for backwards compat\n+        os_.chmod.assert_called_once_with(new, o600)\n+        assert (\n+            key._write_private_key.call_args[0][0]\n+            == os_.fdopen.return_value.__enter__.return_value\n+        )\n+\n+    def test_new_keyfiles_avoid_file_descriptor_race_on_chmod(self):\n+        self._test_keyfile_race(exists=False)\n+\n+    def test_existing_keyfiles_still_work_ok(self):\n+        self._test_keyfile_race(exists=True)\n+\n+    def test_new_keyfiles_avoid_descriptor_race_integration(self):\n+        # Integration-style version of above\n+        password = \"television\"\n+        newpassword = \"radio\"\n+        source = _support(\"test_ecdsa_384.key\")\n+        new = source + \".new\"\n+        # Load fixture key\n+        key = ECDSAKey(filename=source, password=password)\n+        try:\n+            # Write out in new location\n+            key.write_private_key_file(new, password=newpassword)\n+            # Test mode\n+            assert stat.S_IMODE(os.stat(new).st_mode) == o600\n+            # Prove can open with new password\n+            reloaded = ECDSAKey(filename=new, password=newpassword)\n+            assert reloaded == key\n+        finally:\n+            if os.path.exists(new):\n+                os.unlink(new)\n",
+  "summary": "Race Condition in Paramiko",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `paramiko` has a security vulnerability (CWE-362). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_pkey.KeyTest::test_existing_keyfiles_still_work_ok",
+    "tests.test_pkey.KeyTest::test_new_keyfiles_avoid_file_descriptor_race_on_chmod"
+  ],
+  "p2p_tests": [
+    "tests.test_pkey.KeyTest::test_certificates",
+    "tests.test_pkey.KeyTest::test_compare_dss",
+    "tests.test_pkey.KeyTest::test_compare_ecdsa_256",
+    "tests.test_pkey.KeyTest::test_compare_ecdsa_384",
+    "tests.test_pkey.KeyTest::test_compare_ecdsa_521",
+    "tests.test_pkey.KeyTest::test_compare_rsa",
+    "tests.test_pkey.KeyTest::test_ed25519",
+    "tests.test_pkey.KeyTest::test_ed25519_compare",
+    "tests.test_pkey.KeyTest::test_ed25519_funky_padding",
+    "tests.test_pkey.KeyTest::test_ed25519_funky_padding_with_passphrase",
+    "tests.test_pkey.KeyTest::test_ed25519_load_from_file_obj",
+    "tests.test_pkey.KeyTest::test_ed25519_nonbytes_password",
+    "tests.test_pkey.KeyTest::test_generate_dss",
+    "tests.test_pkey.KeyTest::test_generate_ecdsa",
+    "tests.test_pkey.KeyTest::test_generate_key_bytes",
+    "tests.test_pkey.KeyTest::test_generate_rsa",
+    "tests.test_pkey.KeyTest::test_keys_are_comparable",
+    "tests.test_pkey.KeyTest::test_keys_are_hashable",
+    "tests.test_pkey.KeyTest::test_load_dss",
+    "tests.test_pkey.KeyTest::test_load_dss_password",
+    "tests.test_pkey.KeyTest::test_load_ecdsa_256",
+    "tests.test_pkey.KeyTest::test_load_ecdsa_384",
+    "tests.test_pkey.KeyTest::test_load_ecdsa_521",
+    "tests.test_pkey.KeyTest::test_load_ecdsa_transmutes_crypto_exceptions",
+    "tests.test_pkey.KeyTest::test_load_openssh_format_DSS_key",
+    "tests.test_pkey.KeyTest::test_load_openssh_format_EC_key",
+    "tests.test_pkey.KeyTest::test_load_openssh_format_RSA_key",
+    "tests.test_pkey.KeyTest::test_load_openssh_format_RSA_nopad",
+    "tests.test_pkey.KeyTest::test_load_rsa",
+    "tests.test_pkey.KeyTest::test_load_rsa_transmutes_crypto_exceptions",
+    "tests.test_pkey.KeyTest::test_loading_openssh_RSA_keys_uses_correct_p_q",
+    "tests.test_pkey.KeyTest::test_sign_and_verify_rsa_sha2_256",
+    "tests.test_pkey.KeyTest::test_sign_and_verify_rsa_sha2_512",
+    "tests.test_pkey.KeyTest::test_sign_and_verify_ssh_rsa",
+    "tests.test_pkey.KeyTest::test_sign_dss",
+    "tests.test_pkey.KeyTest::test_sign_ecdsa_256",
+    "tests.test_pkey.KeyTest::test_sign_ecdsa_384",
+    "tests.test_pkey.KeyTest::test_sign_ecdsa_521",
+    "tests.test_pkey.KeyTest::test_stringification"
+  ],
+  "test_files": [
+    "tests/test_pkey.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 39,
+  "n_after_pass": 41,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-f8q4-jwww-x3wv",
+      "summary": "Race Condition in Paramiko",
+      "details": "In Paramiko before 2.10.1, a race condition (between creation and chmod) in the write_private_key_file function could allow unauthorized information disclosure.",
+      "aliases": [
+        "CVE-2022-24302",
+        "PYSEC-2022-166"
+      ],
+      "published": "2022-03-19T00:01:03Z",
+      "modified": "2025-12-20T03:08:14.593089Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-362"
+      ],
+      "affected": [
+        {
+          "package": "paramiko",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.10.0"
+                },
+                {
+                  "fixed": "2.10.1"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": "paramiko",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.9.0"
+                },
+                {
+                  "fixed": "2.9.3"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-24302"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/paramiko/paramiko/commit/4c491e299c9b800358b16fa4886d8d94f45abe2e"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-f8q4-jwww-x3wv"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/paramiko/paramiko"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/paramiko/paramiko/blob/363a28d94cada17f012c1604a3c99c71a2bda003/paramiko/pkey.py#L546"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/paramiko/PYSEC-2022-166.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2022/03/msg00032.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2022/09/msg00013.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/12/msg00020.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/LUEUEGILZ7MQXRSUF5VMMO4SWJQVPTQL"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/TPMKRUS4HO3P7NR7P4Y6CLHB4MBEE3AI"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/U63MJ2VOLLQ35R7CYNREUHSXYLWNPVSB"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/LUEUEGILZ7MQXRSUF5VMMO4SWJQVPTQL"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/TPMKRUS4HO3P7NR7P4Y6CLHB4MBEE3AI"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/U63MJ2VOLLQ35R7CYNREUHSXYLWNPVSB"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.paramiko.org/changelog.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-f8q4-jwww-x3wv",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "4c491e299c9b800358b16fa4886d8d94f45abe2e",
+      "authored_at": "2022-02-25T14:50:42-05:00",
+      "committed_at": "2022-03-11T23:18:48-05:00",
+      "message": "Fix CVE re: PKey.write_private_key chmod race\n\nCVE-2022-24302 (see changelog for link)",
+      "url": "https://github.com/paramiko/paramiko/commit/4c491e299c9b800358b16fa4886d8d94f45abe2e"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:37+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

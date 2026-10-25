@@ -2,7 +2,7 @@
   "passed": true,
   "any_solved": false,
   "oracle_ok": true,
-  "isolation": "bwrap",
+  "isolation": "process-only",
   "rows": [
     {
       "family": "sqli",

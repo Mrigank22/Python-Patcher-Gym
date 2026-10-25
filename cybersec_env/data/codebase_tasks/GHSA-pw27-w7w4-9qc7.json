@@ -1,0 +1,204 @@
+{
+  "id": "GHSA-pw27-w7w4-9qc7",
+  "aliases": [
+    "CVE-2016-2512",
+    "PYSEC-2016-15"
+  ],
+  "cwes": [
+    "CWE-79"
+  ],
+  "severity": "MODERATE",
+  "package": "django",
+  "repo": {
+    "owner": "django",
+    "name": "django",
+    "url": "https://github.com/django/django"
+  },
+  "base_commit": "922f228695701e70a223854b2466afc406c63cbb",
+  "fix_commit": "382ab137312961ad62feb8109d70a5a581fe8350",
+  "python_requires": "",
+  "changed_source_files": [
+    "django/utils/http.py"
+  ],
+  "changed_test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "source_patch": "diff --git a/django/utils/http.py b/django/utils/http.py\nindex 34c1742..94800e9 100644\n--- a/django/utils/http.py\n+++ b/django/utils/http.py\n@@ -277,8 +277,12 @@ def is_safe_url(url, host=None):\n         url = url.strip()\n     if not url:\n         return False\n-    # Chrome treats \\ completely as /\n-    url = url.replace('\\\\', '/')\n+    # Chrome treats \\ completely as / in paths but it could be part of some\n+    # basic auth credentials so we need to check both URLs.\n+    return _is_safe_url(url, host) and _is_safe_url(url.replace('\\\\', '/'), host)\n+\n+\n+def _is_safe_url(url, host):\n     # Chrome considers any URL with more than two slashes to be absolute, but\n     # urlparse is not so flexible. Treat any url with three slashes as unsafe.\n     if url.startswith('///'):\n",
+  "test_patch": "diff --git a/tests/utils_tests/test_http.py b/tests/utils_tests/test_http.py\nindex 5679a57..e04a3ab 100644\n--- a/tests/utils_tests/test_http.py\n+++ b/tests/utils_tests/test_http.py\n@@ -117,6 +117,11 @@ class TestUtilsHttp(unittest.TestCase):\n                         'javascript:alert(\"XSS\")',\n                         '\\njavascript:alert(x)',\n                         '\\x08//example.com',\n+                        r'http://otherserver\\@example.com',\n+                        r'http:\\\\testserver\\@example.com',\n+                        r'http://testserver\\me:pass@example.com',\n+                        r'http://testserver\\@example.com',\n+                        r'http:\\\\testserver\\confirm\\me@example.com',\n                         '\\n'):\n             self.assertFalse(http.is_safe_url(bad_url, host='testserver'), \"%s should be blocked\" % bad_url)\n         for good_url in ('/view/?param=http://example.com',\n@@ -126,8 +131,15 @@ class TestUtilsHttp(unittest.TestCase):\n                      'https://testserver/',\n                      'HTTPS://testserver/',\n                      '//testserver/',\n+                     'http://testserver/confirm?email=me@example.com',\n                      '/url%20with%20spaces/'):\n             self.assertTrue(http.is_safe_url(good_url, host='testserver'), \"%s should be allowed\" % good_url)\n+        # Valid basic auth credentials are allowed.\n+        self.assertTrue(http.is_safe_url(r'http://user:pass@testserver/', host='user:pass@testserver'))\n+        # A path without host is allowed.\n+        self.assertTrue(http.is_safe_url('/confirm/me@example.com'))\n+        # Basic auth without host is not allowed.\n+        self.assertFalse(http.is_safe_url(r'http://testserver\\@example.com'))\n \n     def test_urlsafe_base64_roundtrip(self):\n         bytestring = b'foo'\n",
+  "summary": "Django XSS Vulnerability",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `django` has a security vulnerability (CWE-79). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.utils_tests.test_http.TestUtilsHttp::test_is_safe_url"
+  ],
+  "p2p_tests": [
+    "tests.utils_tests.test_http.ETagProcessingTests::test_parsing",
+    "tests.utils_tests.test_http.ETagProcessingTests::test_quoting",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_cookie_date",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_http_date",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_asctime",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc1123",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc850",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_base36",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_same_origin_false",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_same_origin_true",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlencode",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlquote",
+    "tests.utils_tests.test_http.TestUtilsHttp::test_urlsafe_base64_roundtrip"
+  ],
+  "test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 13,
+  "n_after_pass": 14,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-pw27-w7w4-9qc7",
+      "summary": "Django XSS Vulnerability",
+      "details": "The `utils.http.is_safe_url function` in Django before 1.8.10 and 1.9.x before 1.9.3 allows remote attackers to redirect users to arbitrary web sites and conduct phishing attacks or possibly conduct cross-site scripting (XSS) attacks via a URL containing basic authentication, as demonstrated by `http://mysite.example.com\\@attacker.com`.",
+      "aliases": [
+        "CVE-2016-2512",
+        "PYSEC-2016-15"
+      ],
+      "published": "2022-05-17T01:09:58Z",
+      "modified": "2024-09-18T16:26:00.186578Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "package": "django",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.8.10"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": "django",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "1.9a1"
+                },
+                {
+                  "fixed": "1.9.3"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2016-2512"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/382ab137312961ad62feb8109d70a5a581fe8350"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/c5544d289233f501917e25970c03ed444abbd4f0"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/fc6d147a63f89795dbcdecb0559256470fff4380"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/django/django"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/django/PYSEC-2016-15.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://web.archive.org/web/20210123090815/http://www.securityfocus.com/bid/83879"
+        },
+        {
+          "type": "WEB",
+          "url": "https://web.archive.org/web/20210413200202/http://www.securitytracker.com/id/1035152"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.djangoproject.com/weblog/2016/mar/01/security-releases"
+        },
+        {
+          "type": "WEB",
+          "url": "http://rhn.redhat.com/errata/RHSA-2016-0502.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://rhn.redhat.com/errata/RHSA-2016-0504.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://rhn.redhat.com/errata/RHSA-2016-0505.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://rhn.redhat.com/errata/RHSA-2016-0506.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.debian.org/security/2016/dsa-3544"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.oracle.com/technetwork/topics/security/bulletinapr2016-2952098.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.ubuntu.com/usn/USN-2915-1"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.ubuntu.com/usn/USN-2915-2"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.ubuntu.com/usn/USN-2915-3"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-pw27-w7w4-9qc7",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2016-15",
+          "summary": "",
+          "details": "The utils.http.is_safe_url function in Django before 1.8.10 and 1.9.x before 1.9.3 allows remote attackers to redirect users to arbitrary web sites and conduct phishing attacks or possibly conduct cross-site scripting (XSS) attacks via a URL containing basic authentication, as demonstrated by http://mysite.example.com\\@attacker.com.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2016-15"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "382ab137312961ad62feb8109d70a5a581fe8350",
+      "authored_at": "2016-02-22T16:55:51-05:00",
+      "committed_at": "2016-02-29T08:07:17-05:00",
+      "message": "[1.8.x] Fixed CVE-2016-2512 -- Prevented spoofing is_safe_url() with basic auth.\n\nThis is a security fix.",
+      "url": "https://github.com/django/django/commit/382ab137312961ad62feb8109d70a5a581fe8350"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:34:56+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

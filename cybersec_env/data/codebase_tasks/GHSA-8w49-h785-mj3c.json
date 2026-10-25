@@ -1,0 +1,166 @@
+{
+  "id": "GHSA-8w49-h785-mj3c",
+  "aliases": [
+    "CVE-2024-52804",
+    "PYSEC-2026-1975"
+  ],
+  "cwes": [
+    "CWE-400",
+    "CWE-770"
+  ],
+  "severity": "HIGH",
+  "package": "tornado",
+  "repo": {
+    "owner": "tornadoweb",
+    "name": "tornado",
+    "url": "https://github.com/tornadoweb/tornado"
+  },
+  "base_commit": "2a0e1d13b5222dca4388c0ec8a4bb74ea6fa4af2",
+  "fix_commit": "d5ba4a1695fbf7c6a3e54313262639b198291533",
+  "python_requires": ">= 3.8",
+  "changed_source_files": [
+    "tornado/httputil.py"
+  ],
+  "changed_test_files": [
+    "tornado/test/httputil_test.py"
+  ],
+  "source_patch": "diff --git a/tornado/httputil.py b/tornado/httputil.py\nindex 9ce992d..ebdc805 100644\n--- a/tornado/httputil.py\n+++ b/tornado/httputil.py\n@@ -1057,15 +1057,20 @@ def qs_to_qsl(qs: Dict[str, List[AnyStr]]) -> Iterable[Tuple[str, AnyStr]]:\n             yield (k, v)\n \n \n-_OctalPatt = re.compile(r\"\\\\[0-3][0-7][0-7]\")\n-_QuotePatt = re.compile(r\"[\\\\].\")\n-_nulljoin = \"\".join\n+_unquote_sub = re.compile(r\"\\\\(?:([0-3][0-7][0-7])|(.))\").sub\n+\n+\n+def _unquote_replace(m: re.Match) -> str:\n+    if m[1]:\n+        return chr(int(m[1], 8))\n+    else:\n+        return m[2]\n \n \n def _unquote_cookie(s: str) -> str:\n     \"\"\"Handle double quotes and escaping in cookie values.\n \n-    This method is copied verbatim from the Python 3.5 standard\n+    This method is copied verbatim from the Python 3.13 standard\n     library (http.cookies._unquote) so we don't have to depend on\n     non-public interfaces.\n     \"\"\"\n@@ -1086,30 +1091,7 @@ def _unquote_cookie(s: str) -> str:\n     #    \\012 --> \\n\n     #    \\\"   --> \"\n     #\n-    i = 0\n-    n = len(s)\n-    res = []\n-    while 0 <= i < n:\n-        o_match = _OctalPatt.search(s, i)\n-        q_match = _QuotePatt.search(s, i)\n-        if not o_match and not q_match:  # Neither matched\n-            res.append(s[i:])\n-            break\n-        # else:\n-        j = k = -1\n-        if o_match:\n-            j = o_match.start(0)\n-        if q_match:\n-            k = q_match.start(0)\n-        if q_match and (not o_match or k < j):  # QuotePatt matched\n-            res.append(s[i:k])\n-            res.append(s[k + 1])\n-            i = k + 2\n-        else:  # OctalPatt matched\n-            res.append(s[i:j])\n-            res.append(chr(int(s[j + 1 : j + 4], 8)))\n-            i = j + 4\n-    return _nulljoin(res)\n+    return _unquote_sub(_unquote_replace, s)\n \n \n def parse_cookie(cookie: str) -> Dict[str, str]:\n",
+  "test_patch": "diff --git a/tornado/test/httputil_test.py b/tornado/test/httputil_test.py\nindex 6d61883..975900a 100644\n--- a/tornado/test/httputil_test.py\n+++ b/tornado/test/httputil_test.py\n@@ -560,3 +560,49 @@ class ParseCookieTest(unittest.TestCase):\n         self.assertEqual(\n             parse_cookie(\"  =  b  ;  ;  =  ;   c  =  ;  \"), {\"\": \"b\", \"c\": \"\"}\n         )\n+\n+    def test_unquote(self):\n+        # Copied from\n+        # https://github.com/python/cpython/blob/dc7a2b6522ec7af41282bc34f405bee9b306d611/Lib/test/test_http_cookies.py#L62\n+        cases = [\n+            (r'a=\"b=\\\"\"', 'b=\"'),\n+            (r'a=\"b=\\\\\"', \"b=\\\\\"),\n+            (r'a=\"b=\\=\"', \"b==\"),\n+            (r'a=\"b=\\n\"', \"b=n\"),\n+            (r'a=\"b=\\042\"', 'b=\"'),\n+            (r'a=\"b=\\134\"', \"b=\\\\\"),\n+            (r'a=\"b=\\377\"', \"b=\\xff\"),\n+            (r'a=\"b=\\400\"', \"b=400\"),\n+            (r'a=\"b=\\42\"', \"b=42\"),\n+            (r'a=\"b=\\\\042\"', \"b=\\\\042\"),\n+            (r'a=\"b=\\\\134\"', \"b=\\\\134\"),\n+            (r'a=\"b=\\\\\\\"\"', 'b=\\\\\"'),\n+            (r'a=\"b=\\\\\\042\"', 'b=\\\\\"'),\n+            (r'a=\"b=\\134\\\"\"', 'b=\\\\\"'),\n+            (r'a=\"b=\\134\\042\"', 'b=\\\\\"'),\n+        ]\n+        for encoded, decoded in cases:\n+            with self.subTest(encoded):\n+                c = parse_cookie(encoded)\n+                self.assertEqual(c[\"a\"], decoded)\n+\n+    def test_unquote_large(self):\n+        # Adapted from\n+        # https://github.com/python/cpython/blob/dc7a2b6522ec7af41282bc34f405bee9b306d611/Lib/test/test_http_cookies.py#L87\n+        # Modified from that test because we handle semicolons differently from the stdlib.\n+        #\n+        # This is a performance regression test: prior to improvements in Tornado 6.4.2, this test\n+        # would take over a minute with n= 100k. Now it runs in tens of milliseconds.\n+        n = 100000\n+        for encoded in r\"\\\\\", r\"\\134\":\n+            with self.subTest(encoded):\n+                start = time.time()\n+                data = 'a=\"b=' + encoded * n + '\"'\n+                value = parse_cookie(data)[\"a\"]\n+                end = time.time()\n+                self.assertEqual(value[:3], \"b=\\\\\")\n+                self.assertEqual(value[-3:], \"\\\\\\\\\\\\\")\n+                self.assertEqual(len(value), n + 2)\n+\n+                # Very loose performance check to avoid false positives\n+                self.assertLess(end - start, 1, \"Test took too long\")\n",
+  "summary": "Tornado has an HTTP cookie parsing DoS vulnerability",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `tornado` has a security vulnerability (CWE-400, CWE-770). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tornado.test.httputil_test.ParseCookieTest::test_unquote_large"
+  ],
+  "p2p_tests": [
+    "tornado.test.httputil_test.FormatTimestampTest::test_other_aware_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_struct_time",
+    "tornado.test.httputil_test.FormatTimestampTest::test_time_tuple",
+    "tornado.test.httputil_test.FormatTimestampTest::test_unix_time_float",
+    "tornado.test.httputil_test.FormatTimestampTest::test_unix_time_int",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_aware_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_naive_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_naive_datetime_deprecated",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_copy",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_malformed_continuation",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_multi_line",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_optional_cr",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_pickle_roundtrip",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_setdefault",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_string",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_unicode_newlines",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_unicode_whitespace",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_body_is_a_byte_string",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_default_constructor",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_repr_does_not_contain_headers",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_boundary_starts_and_ends_with_quotes",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_content_disposition_header_without_name_parameter",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_data_after_final_boundary",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_file_upload",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_invalid_content_disposition",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_line_does_not_end_with_correct_line_break",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_missing_headers",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_non_ascii_filename",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_special_filenames",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_unquoted_names",
+    "tornado.test.httputil_test.ParseCookieTest::test_cookie_edgecases",
+    "tornado.test.httputil_test.ParseCookieTest::test_invalid_cookies",
+    "tornado.test.httputil_test.ParseCookieTest::test_python_cookies",
+    "tornado.test.httputil_test.ParseCookieTest::test_unquote",
+    "tornado.test.httputil_test.ParseRequestStartLineTest::test_parse_request_start_line",
+    "tornado.test.httputil_test.QsParseTest::test_parsing",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_dict_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_encode_args",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_mult_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_multi_same_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_multi_same_query_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_no_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_no_query_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_none_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_q_with_no_trailing_amp",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_trailing_amp",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_trailing_q",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_with_frag"
+  ],
+  "test_files": [
+    "tornado/test/httputil_test.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 48,
+  "n_after_pass": 49,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-8w49-h785-mj3c",
+      "summary": "Tornado has an HTTP cookie parsing DoS vulnerability",
+      "details": "The algorithm used for parsing HTTP cookies in Tornado versions prior to 6.4.2 sometimes has quadratic complexity, leading to excessive CPU consumption when parsing maliciously-crafted cookie headers. This parsing occurs in the event loop thread and may block the processing of other requests.\n\nSee also CVE-2024-7592 for a similar vulnerability in cpython.",
+      "aliases": [
+        "CVE-2024-52804",
+        "PYSEC-2026-1975"
+      ],
+      "published": "2024-11-22T20:26:41Z",
+      "modified": "2026-09-10T03:50:20.413166306Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "package": "tornado",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.4.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/tornadoweb/tornado/security/advisories/GHSA-8w49-h785-mj3c"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-52804"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/tornadoweb/tornado/commit/d5ba4a1695fbf7c6a3e54313262639b198291533"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/tornadoweb/tornado"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/01/msg00000.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-8w49-h785-mj3c",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "d5ba4a1695fbf7c6a3e54313262639b198291533",
+      "authored_at": "2024-11-21T14:48:05-05:00",
+      "committed_at": "2024-11-21T21:17:20-05:00",
+      "message": "httputil: Fix quadratic performance of cookie parsing\n\nMaliciously-crafted cookies can cause Tornado to\nspend an unreasonable amount of CPU time and block\nthe event loop.\n\nThis change replaces the quadratic algorithm with\na more efficient one. The implementation is copied\nfrom the Python 3.13 standard library (the\nprevious one was from Python 3.5).\n\nFixes CVE-2024-52804\nSee CVE-2024-7592 for a similar vulnerability in cpython.\n\nThanks to github.com/kexinoh for the report.",
+      "url": "https://github.com/tornadoweb/tornado/commit/d5ba4a1695fbf7c6a3e54313262639b198291533"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:51:59+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

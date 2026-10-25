@@ -1,0 +1,197 @@
+{
+  "id": "GHSA-2c2j-9gv5-cj73",
+  "aliases": [
+    "CVE-2025-54121",
+    "PYSEC-2026-1941"
+  ],
+  "cwes": [
+    "CWE-770"
+  ],
+  "severity": "MODERATE",
+  "package": "starlette",
+  "repo": {
+    "owner": "encode",
+    "name": "starlette",
+    "url": "https://github.com/encode/starlette"
+  },
+  "base_commit": "540ff5f076468eb69f827e76cb020e21fb39b3ca",
+  "fix_commit": "9f7ec2eb512fcc3fe90b43cb9dd9e1d08696bec1",
+  "python_requires": ">=3.9",
+  "changed_source_files": [
+    "starlette/datastructures.py"
+  ],
+  "changed_test_files": [
+    "tests/test_formparsers.py"
+  ],
+  "source_patch": "diff --git a/starlette/datastructures.py b/starlette/datastructures.py\nindex 70dacd0..38eabec 100644\n--- a/starlette/datastructures.py\n+++ b/starlette/datastructures.py\n@@ -428,6 +428,10 @@ class UploadFile:\n         self.size = size\n         self.headers = headers or Headers()\n \n+        # Capture max size from SpooledTemporaryFile if one is provided. This slightly speeds up future checks.\n+        # Note 0 means unlimited mirroring SpooledTemporaryFile's __init__\n+        self._max_mem_size = getattr(self.file, \"_max_size\", 0)\n+\n     @property\n     def content_type(self) -> str | None:\n         return self.headers.get(\"content-type\", None)\n@@ -438,14 +442,24 @@ class UploadFile:\n         rolled_to_disk = getattr(self.file, \"_rolled\", True)\n         return not rolled_to_disk\n \n+    def _will_roll(self, size_to_add: int) -> bool:\n+        # If we're not in_memory then we will always roll\n+        if not self._in_memory:\n+            return True\n+\n+        # Check for SpooledTemporaryFile._max_size\n+        future_size = self.file.tell() + size_to_add\n+        return bool(future_size > self._max_mem_size) if self._max_mem_size else False\n+\n     async def write(self, data: bytes) -> None:\n+        new_data_len = len(data)\n         if self.size is not None:\n-            self.size += len(data)\n+            self.size += new_data_len\n \n-        if self._in_memory:\n-            self.file.write(data)\n-        else:\n+        if self._will_roll(new_data_len):\n             await run_in_threadpool(self.file.write, data)\n+        else:\n+            self.file.write(data)\n \n     async def read(self, size: int = -1) -> bytes:\n         if self._in_memory:\n",
+  "test_patch": "diff --git a/tests/test_formparsers.py b/tests/test_formparsers.py\nindex 35681e7..58f6a0c 100644\n--- a/tests/test_formparsers.py\n+++ b/tests/test_formparsers.py\n@@ -1,15 +1,20 @@\n from __future__ import annotations\n \n import os\n+import threading\n+from collections.abc import Generator\n from contextlib import AbstractContextManager, nullcontext as does_not_raise\n+from io import BytesIO\n from pathlib import Path\n-from typing import Any\n+from tempfile import SpooledTemporaryFile\n+from typing import Any, ClassVar\n+from unittest import mock\n \n import pytest\n \n from starlette.applications import Starlette\n from starlette.datastructures import UploadFile\n-from starlette.formparsers import MultiPartException, _user_safe_decode\n+from starlette.formparsers import MultiPartException, MultiPartParser, _user_safe_decode\n from starlette.requests import Request\n from starlette.responses import JSONResponse\n from starlette.routing import Mount\n@@ -104,6 +109,22 @@ async def app_read_body(scope: Scope, receive: Receive, send: Send) -> None:\n     await response(scope, receive, send)\n \n \n+async def app_monitor_thread(scope: Scope, receive: Receive, send: Send) -> None:\n+    \"\"\"Helper app to monitor what thread the app was called on.\n+\n+    This can later be used to validate thread/event loop operations.\n+    \"\"\"\n+    request = Request(scope, receive)\n+\n+    # Make sure we parse the form\n+    await request.form()\n+    await request.close()\n+\n+    # Send back the current thread id\n+    response = JSONResponse({\"thread_ident\": threading.current_thread().ident})\n+    await response(scope, receive, send)\n+\n+\n def make_app_max_parts(max_files: int = 1000, max_fields: int = 1000, max_part_size: int = 1024 * 1024) -> ASGIApp:\n     async def app(scope: Scope, receive: Receive, send: Send) -> None:\n         request = Request(scope, receive)\n@@ -303,6 +324,47 @@ def test_multipart_request_mixed_files_and_data(tmpdir: Path, test_client_factor\n     }\n \n \n+class ThreadTrackingSpooledTemporaryFile(SpooledTemporaryFile[bytes]):\n+    \"\"\"Helper class to track which threads performed the rollover operation.\n+\n+    This is not threadsafe/multi-test safe.\n+    \"\"\"\n+\n+    rollover_threads: ClassVar[set[int | None]] = set()\n+\n+    def rollover(self) -> None:\n+        ThreadTrackingSpooledTemporaryFile.rollover_threads.add(threading.current_thread().ident)\n+        super().rollover()\n+\n+\n+@pytest.fixture\n+def mock_spooled_temporary_file() -> Generator[None]:\n+    try:\n+        with mock.patch(\"starlette.formparsers.SpooledTemporaryFile\", ThreadTrackingSpooledTemporaryFile):\n+            yield\n+    finally:\n+        ThreadTrackingSpooledTemporaryFile.rollover_threads.clear()\n+\n+\n+def test_multipart_request_large_file_rollover_in_background_thread(\n+    mock_spooled_temporary_file: None, test_client_factory: TestClientFactory\n+) -> None:\n+    \"\"\"Test that Spooled file rollovers happen in background threads.\"\"\"\n+    data = BytesIO(b\" \" * (MultiPartParser.spool_max_size + 1))\n+\n+    client = test_client_factory(app_monitor_thread)\n+    response = client.post(\"/\", files=[(\"test_large\", data)])\n+    assert response.status_code == 200\n+\n+    # Parse the event thread id from the API response and ensure we have one\n+    app_thread_ident = response.json().get(\"thread_ident\")\n+    assert app_thread_ident is not None\n+\n+    # Ensure the app thread was not the same as the rollover one and that a rollover thread exists\n+    assert app_thread_ident not in ThreadTrackingSpooledTemporaryFile.rollover_threads\n+    assert len(ThreadTrackingSpooledTemporaryFile.rollover_threads) == 1\n+\n+\n def test_multipart_request_with_charset_for_filename(tmpdir: Path, test_client_factory: TestClientFactory) -> None:\n     client = test_client_factory(app)\n     response = client.post(\n",
+  "summary": "Starlette has possible denial-of-service vector when parsing large files in multipart forms",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `starlette` has a security vulnerability (CWE-770). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_formparsers::test_multipart_request_large_file_rollover_in_background_thread[asyncio]",
+    "tests.test_formparsers::test_multipart_request_large_file_rollover_in_background_thread[trio]"
+  ],
+  "p2p_tests": [
+    "tests.test_formparsers::test_max_fields_is_customizable_high[asyncio]",
+    "tests.test_formparsers::test_max_fields_is_customizable_high[trio]",
+    "tests.test_formparsers::test_max_fields_is_customizable_low_raises[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_max_fields_is_customizable_low_raises[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_max_fields_is_customizable_low_raises[trio-app1-expectation1]",
+    "tests.test_formparsers::test_max_files_is_customizable_low_raises[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_max_files_is_customizable_low_raises[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_max_files_is_customizable_low_raises[trio-app1-expectation1]",
+    "tests.test_formparsers::test_max_part_size_exceeds_custom_limit[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_max_part_size_exceeds_custom_limit[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_max_part_size_exceeds_custom_limit[trio-app1-expectation1]",
+    "tests.test_formparsers::test_max_part_size_exceeds_limit[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_max_part_size_exceeds_limit[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_max_part_size_exceeds_limit[trio-app1-expectation1]",
+    "tests.test_formparsers::test_missing_boundary_parameter[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_missing_boundary_parameter[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_missing_boundary_parameter[trio-app1-expectation1]",
+    "tests.test_formparsers::test_missing_name_parameter_on_content_disposition[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_missing_name_parameter_on_content_disposition[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_missing_name_parameter_on_content_disposition[trio-app1-expectation1]",
+    "tests.test_formparsers::test_multi_items[asyncio]",
+    "tests.test_formparsers::test_multi_items[trio]",
+    "tests.test_formparsers::test_multipart_multi_field_app_reads_body[asyncio]",
+    "tests.test_formparsers::test_multipart_multi_field_app_reads_body[trio]",
+    "tests.test_formparsers::test_multipart_request_data[asyncio]",
+    "tests.test_formparsers::test_multipart_request_data[trio]",
+    "tests.test_formparsers::test_multipart_request_files[asyncio]",
+    "tests.test_formparsers::test_multipart_request_files[trio]",
+    "tests.test_formparsers::test_multipart_request_files_with_content_type[asyncio]",
+    "tests.test_formparsers::test_multipart_request_files_with_content_type[trio]",
+    "tests.test_formparsers::test_multipart_request_mixed_files_and_data[asyncio]",
+    "tests.test_formparsers::test_multipart_request_mixed_files_and_data[trio]",
+    "tests.test_formparsers::test_multipart_request_multiple_files[asyncio]",
+    "tests.test_formparsers::test_multipart_request_multiple_files[trio]",
+    "tests.test_formparsers::test_multipart_request_multiple_files_with_headers[asyncio]",
+    "tests.test_formparsers::test_multipart_request_multiple_files_with_headers[trio]",
+    "tests.test_formparsers::test_multipart_request_with_charset_for_filename[asyncio]",
+    "tests.test_formparsers::test_multipart_request_with_charset_for_filename[trio]",
+    "tests.test_formparsers::test_multipart_request_with_encoded_value[asyncio]",
+    "tests.test_formparsers::test_multipart_request_with_encoded_value[trio]",
+    "tests.test_formparsers::test_multipart_request_without_charset_for_filename[asyncio]",
+    "tests.test_formparsers::test_multipart_request_without_charset_for_filename[trio]",
+    "tests.test_formparsers::test_no_request_data[asyncio]",
+    "tests.test_formparsers::test_no_request_data[trio]",
+    "tests.test_formparsers::test_too_many_fields_raise[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_too_many_fields_raise[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_fields_raise[trio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_and_fields_raise[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_too_many_files_and_fields_raise[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_and_fields_raise[trio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_raise[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_too_many_files_raise[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_raise[trio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_single_field_raise[asyncio-app-expectation0]",
+    "tests.test_formparsers::test_too_many_files_single_field_raise[asyncio-app1-expectation1]",
+    "tests.test_formparsers::test_too_many_files_single_field_raise[trio-app1-expectation1]",
+    "tests.test_formparsers::test_urlencoded_multi_field_app_reads_body[asyncio]",
+    "tests.test_formparsers::test_urlencoded_multi_field_app_reads_body[trio]",
+    "tests.test_formparsers::test_urlencoded_percent_encoding[asyncio]",
+    "tests.test_formparsers::test_urlencoded_percent_encoding[trio]",
+    "tests.test_formparsers::test_urlencoded_percent_encoding_keys[asyncio]",
+    "tests.test_formparsers::test_urlencoded_percent_encoding_keys[trio]",
+    "tests.test_formparsers::test_urlencoded_request_data[asyncio]",
+    "tests.test_formparsers::test_urlencoded_request_data[trio]",
+    "tests.test_formparsers::test_user_safe_decode_helper",
+    "tests.test_formparsers::test_user_safe_decode_ignores_wrong_charset"
+  ],
+  "test_files": [
+    "tests/test_formparsers.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 66,
+  "n_after_pass": 68,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-2c2j-9gv5-cj73",
+      "summary": "Starlette has possible denial-of-service vector when parsing large files in multipart forms",
+      "details": "### Summary\nWhen parsing a multi-part form with large files (greater than the [default max spool size](https://github.com/encode/starlette/blob/fa5355442753f794965ae1af0f87f9fec1b9a3de/starlette/formparsers.py#L126)) `starlette` will block the main thread to roll the file over to disk. This blocks the event thread which means we can't accept new connections.\n\n### Details\nPlease see this discussion for details: https://github.com/encode/starlette/discussions/2927#discussioncomment-13721403. In summary the following UploadFile code (copied from [here](https://github.com/encode/starlette/blob/fa5355442753f794965ae1af0f87f9fec1b9a3de/starlette/datastructures.py#L436C5-L447C14)) has a minor bug. Instead of just checking for `self._in_memory` we should also check if the additional bytes will cause a rollover.\n\n```python\n\n    @property\n    def _in_memory(self) -> bool:\n        # check for SpooledTemporaryFile._rolled\n        rolled_to_disk = getattr(self.file, \"_rolled\", True)\n        return not rolled_to_disk\n\n    async def write(self, data: bytes) -> None:\n        if self.size is not None:\n            self.size += len(data)\n\n        if self._in_memory:\n            self.file.write(data)\n        else:\n            await run_in_threadpool(self.file.write, data)\n```\n\nI have already created a PR which fixes the problem: https://github.com/encode/starlette/pull/2962\n\n\n### PoC\nSee the discussion [here](https://github.com/encode/starlette/discussions/2927#discussioncomment-13721403) for steps on how to reproduce.\n\n### Impact\nTo be honest, very low and not many users will be impacted. Parsing large forms is already CPU intensive so the additional IO block doesn't slow down `starlette` that much on systems with modern HDDs/SSDs. If someone is running on tape they might see a greater impact.",
+      "aliases": [
+        "CVE-2025-54121",
+        "PYSEC-2026-1941"
+      ],
+      "published": "2025-07-21T19:34:23Z",
+      "modified": "2026-09-10T03:50:25.704876348Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "package": "starlette",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.47.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/encode/starlette/security/advisories/GHSA-2c2j-9gv5-cj73"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-54121"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/encode/starlette/commit/9f7ec2eb512fcc3fe90b43cb9dd9e1d08696bec1"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/encode/starlette"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/encode/starlette/blob/fa5355442753f794965ae1af0f87f9fec1b9a3de/starlette/datastructures.py#L436C5-L447C14"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/encode/starlette/discussions/2927#discussioncomment-13721403"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-2c2j-9gv5-cj73",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "9f7ec2eb512fcc3fe90b43cb9dd9e1d08696bec1",
+      "authored_at": "2025-07-21T02:24:02+09:00",
+      "committed_at": "2025-07-20T19:24:02+02:00",
+      "message": "Make UploadFile check for future rollover (#2962)\n\nCo-authored-by: Marcelo Trylesinski <<email>>",
+      "url": "https://github.com/encode/starlette/commit/9f7ec2eb512fcc3fe90b43cb9dd9e1d08696bec1"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 2962,
+        "url": "https://github.com/encode/starlette/pull/2962",
+        "title": "Make UploadFile check for future rollover",
+        "body": "<!-- Thanks for contributing to Starlette! 💚\r\nGiven this is a project maintained by volunteers, please read this template to not waste your time, or ours! 😁 -->\r\n\r\n# Summary\r\n\r\nThis PR ensures that during multi-part form parsing any slow disk IO happens in a background. This specifically fixes a case where a file would rollover during a `write()` call as talked about in [this discussion.](https://github.com/encode/starlette/discussions/2927#discussioncomment-13721403)\r\n\r\n# Checklist\r\n\r\n- [x] I understand that this PR may be closed in case there was no previous discussion. (This doesn't apply to typos!)\r\n- [x] I've added a test for each change that was introduced, and I tried as much as possible to make a single atomic change.\r\n- [ ] I've updated the documentation accordingly.\r\n",
+        "merged_at": "2025-07-20T17:24:02Z",
+        "merge_commit_sha": "9f7ec2eb512fcc3fe90b43cb9dd9e1d08696bec1"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T19:27:46+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

@@ -1,0 +1,293 @@
+{
+  "id": "PYSEC-2022-27",
+  "aliases": [
+    "CVE-2022-21712",
+    "GHSA-92x2-jw7w-xvvx"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "twisted",
+  "repo": {
+    "owner": "twisted",
+    "name": "twisted",
+    "url": "https://github.com/twisted/twisted"
+  },
+  "base_commit": "7039a20e8a56c000cb95262ac02b3195349759d1",
+  "fix_commit": "af8fe78542a6f2bf2235ccee8158d9c88d31e8e2",
+  "python_requires": "",
+  "changed_source_files": [
+    "src/twisted/web/client.py",
+    "src/twisted/web/iweb.py"
+  ],
+  "changed_test_files": [
+    "src/twisted/web/test/test_agent.py"
+  ],
+  "source_patch": "diff --git a/src/twisted/web/client.py b/src/twisted/web/client.py\nindex a1295c2..433f431 100644\n--- a/src/twisted/web/client.py\n+++ b/src/twisted/web/client.py\n@@ -12,6 +12,7 @@ import os\n import warnings\n import zlib\n from functools import wraps\n+from typing import Iterable\n from urllib.parse import urldefrag, urljoin, urlunparse as _urlunparse\n \n from zope.interface import implementer\n@@ -2110,6 +2111,18 @@ class ContentDecoderAgent:\n         return response\n \n \n+_canonicalHeaderName = Headers()._canonicalNameCaps\n+_defaultSensitiveHeaders = frozenset(\n+    [\n+        b\"Authorization\",\n+        b\"Cookie\",\n+        b\"Cookie2\",\n+        b\"Proxy-Authorization\",\n+        b\"WWW-Authenticate\",\n+    ]\n+)\n+\n+\n @implementer(IAgent)\n class RedirectAgent:\n     \"\"\"\n@@ -2124,6 +2137,11 @@ class RedirectAgent:\n     @param redirectLimit: The maximum number of times the agent is allowed to\n         follow redirects before failing with a L{error.InfiniteRedirection}.\n \n+    @param sensitiveHeaderNames: An iterable of C{bytes} enumerating the names\n+        of headers that must not be transmitted when redirecting to a different\n+        origins.  These will be consulted in addition to the protocol-specified\n+        set of headers that contain sensitive information.\n+\n     @cvar _redirectResponses: A L{list} of HTTP status codes to be redirected\n         for I{GET} and I{HEAD} methods.\n \n@@ -2141,9 +2159,17 @@ class RedirectAgent:\n     ]\n     _seeOtherResponses = [http.SEE_OTHER]\n \n-    def __init__(self, agent, redirectLimit=20):\n+    def __init__(\n+        self,\n+        agent: IAgent,\n+        redirectLimit: int = 20,\n+        sensitiveHeaderNames: Iterable[bytes] = (),\n+    ):\n         self._agent = agent\n         self._redirectLimit = redirectLimit\n+        sensitive = {_canonicalHeaderName(each) for each in sensitiveHeaderNames}\n+        sensitive.update(_defaultSensitiveHeaders)\n+        self._sensitiveHeaderNames = sensitive\n \n     def request(self, method, uri, headers=None, bodyProducer=None):\n         \"\"\"\n@@ -2186,6 +2212,22 @@ class RedirectAgent:\n             )\n             raise ResponseFailed([Failure(err)], response)\n         location = self._resolveLocation(uri, locationHeaders[0])\n+        if headers:\n+            parsedURI = URI.fromBytes(uri)\n+            parsedLocation = URI.fromBytes(location)\n+            sameOrigin = (\n+                (parsedURI.scheme == parsedLocation.scheme)\n+                and (parsedURI.host == parsedLocation.host)\n+                and (parsedURI.port == parsedLocation.port)\n+            )\n+            if not sameOrigin:\n+                headers = Headers(\n+                    {\n+                        rawName: rawValue\n+                        for rawName, rawValue in headers.getAllRawHeaders()\n+                        if rawName not in self._sensitiveHeaderNames\n+                    }\n+                )\n         deferred = self._agent.request(method, location, headers)\n \n         def _chainResponse(newResponse):\ndiff --git a/src/twisted/web/iweb.py b/src/twisted/web/iweb.py\nindex e83d5a1..1aeb152 100644\n--- a/src/twisted/web/iweb.py\n+++ b/src/twisted/web/iweb.py\n@@ -713,12 +713,12 @@ class IAgent(Interface):\n     obtained by combining a number of (hypothetical) implementations::\n \n         baseAgent = Agent(reactor)\n-        redirect = BrowserLikeRedirectAgent(baseAgent, limit=10)\n+        decode = ContentDecoderAgent(baseAgent, [(b\"gzip\", GzipDecoder())])\n+        cookie = CookieAgent(decode, diskStore.cookie)\n         authenticate = AuthenticateAgent(\n-            redirect, [diskStore.credentials, GtkAuthInterface()])\n-        cookie = CookieAgent(authenticate, diskStore.cookie)\n-        decode = ContentDecoderAgent(cookie, [(b\"gzip\", GzipDecoder())])\n-        cache = CacheAgent(decode, diskStore.cache)\n+            cookie, [diskStore.credentials, GtkAuthInterface()])\n+        cache = CacheAgent(authenticate, diskStore.cache)\n+        redirect = BrowserLikeRedirectAgent(cache, limit=10)\n \n         doSomeRequests(cache)\n     \"\"\"\n",
+  "test_patch": "diff --git a/src/twisted/web/test/test_agent.py b/src/twisted/web/test/test_agent.py\nindex e494561..5201467 100644\n--- a/src/twisted/web/test/test_agent.py\n+++ b/src/twisted/web/test/test_agent.py\n@@ -8,7 +8,8 @@ Tests for L{twisted.web.client.Agent} and related new client APIs.\n import zlib\n from http.cookiejar import CookieJar\n from io import BytesIO\n-from unittest import skipIf\n+from typing import TYPE_CHECKING, List, Optional, Tuple\n+from unittest import SkipTest, skipIf\n \n from zope.interface.declarations import implementer\n from zope.interface.verify import verifyObject\n@@ -76,6 +77,15 @@ from twisted.web.test.injectionhelpers import (\n     URIInjectionTestsMixin,\n )\n \n+# Creatively lie to mypy about the nature of inheritance, since dealing with\n+# expectations of a mixin class is basically impossible (don't use mixins).\n+if TYPE_CHECKING:\n+    testMixinClass = TestCase\n+    runtimeTestCase = object\n+else:\n+    testMixinClass = object\n+    runtimeTestCase = TestCase\n+\n try:\n     from twisted.internet import ssl as _ssl\n except ImportError:\n@@ -108,8 +118,8 @@ class StubHTTPProtocol(Protocol):\n         request method is appended to this list.\n     \"\"\"\n \n-    def __init__(self):\n-        self.requests = []\n+    def __init__(self) -> None:\n+        self.requests: List[Tuple[Request, Deferred[IResponse]]] = []\n         self.state = \"QUIESCENT\"\n \n     def request(self, request):\n@@ -2587,12 +2597,25 @@ class ProxyAgentTests(TestCase, FakeReactorAndConnectMixin, AgentTestsMixin):\n         self.assertEqual(agent._pool.connected, True)\n \n \n-class _RedirectAgentTestsMixin:\n+SENSITIVE_HEADERS = [\n+    b\"authorization\",\n+    b\"cookie\",\n+    b\"cookie2\",\n+    b\"proxy-authorization\",\n+    b\"www-authenticate\",\n+]\n+\n+\n+class _RedirectAgentTestsMixin(testMixinClass):\n     \"\"\"\n     Test cases mixin for L{RedirectAgentTests} and\n     L{BrowserLikeRedirectAgentTests}.\n     \"\"\"\n \n+    agent: IAgent\n+    reactor: MemoryReactorClock\n+    protocol: StubHTTPProtocol\n+\n     def test_noRedirect(self):\n         \"\"\"\n         L{client.RedirectAgent} behaves like L{client.Agent} if the response\n@@ -2611,32 +2634,56 @@ class _RedirectAgentTestsMixin:\n         self.assertIdentical(response, result)\n         self.assertIdentical(result.previousResponse, None)\n \n-    def _testRedirectDefault(self, code):\n+    def _testRedirectDefault(\n+        self,\n+        code: int,\n+        crossScheme: bool = False,\n+        crossDomain: bool = False,\n+        crossPort: bool = False,\n+        requestHeaders: Optional[Headers] = None,\n+    ) -> Request:\n         \"\"\"\n         When getting a redirect, L{client.RedirectAgent} follows the URL\n         specified in the L{Location} header field and make a new request.\n \n         @param code: HTTP status code.\n         \"\"\"\n-        self.agent.request(b\"GET\", b\"http://example.com/foo\")\n+        startDomain = b\"example.com\"\n+        startScheme = b\"https\" if ssl is not None else b\"http\"\n+        startPort = 80 if startScheme == b\"http\" else 443\n+        self.agent.request(\n+            b\"GET\", startScheme + b\"://\" + startDomain + b\"/foo\", headers=requestHeaders\n+        )\n \n         host, port = self.reactor.tcpClients.pop()[:2]\n         self.assertEqual(EXAMPLE_COM_IP, host)\n-        self.assertEqual(80, port)\n+        self.assertEqual(startPort, port)\n \n         req, res = self.protocol.requests.pop()\n \n-        # If possible (i.e.: SSL support is present), run the test with a\n+        # If possible (i.e.: TLS support is present), run the test with a\n         # cross-scheme redirect to verify that the scheme is honored; if not,\n         # let's just make sure it works at all.\n-        if ssl is None:\n-            scheme = b\"http\"\n-            expectedPort = 80\n-        else:\n-            scheme = b\"https\"\n-            expectedPort = 443\n-\n-        headers = http_headers.Headers({b\"location\": [scheme + b\"://example.com/bar\"]})\n+\n+        targetScheme = startScheme\n+        targetDomain = startDomain\n+        targetPort = startPort\n+\n+        if crossScheme:\n+            if ssl is None:\n+                raise SkipTest(\n+                    \"Cross-scheme redirects can't be tested without TLS support.\"\n+                )\n+            targetScheme = b\"https\" if startScheme == b\"http\" else b\"http\"\n+            targetPort = 443 if startPort == 80 else 80\n+\n+        portSyntax = b\"\"\n+        if crossPort:\n+            targetPort = 8443\n+            portSyntax = b\":8443\"\n+        targetDomain = b\"example.net\" if crossDomain else startDomain\n+        locationValue = targetScheme + b\"://\" + targetDomain + portSyntax + b\"/bar\"\n+        headers = http_headers.Headers({b\"location\": [locationValue]})\n         response = Response((b\"HTTP\", 1, 1), code, b\"OK\", headers, None)\n         res.callback(response)\n \n@@ -2645,8 +2692,9 @@ class _RedirectAgentTestsMixin:\n         self.assertEqual(b\"/bar\", req2.uri)\n \n         host, port = self.reactor.tcpClients.pop()[:2]\n-        self.assertEqual(EXAMPLE_COM_IP, host)\n-        self.assertEqual(expectedPort, port)\n+        self.assertEqual(EXAMPLE_NET_IP if crossDomain else EXAMPLE_COM_IP, host)\n+        self.assertEqual(targetPort, port)\n+        return req2\n \n     def test_redirect301(self):\n         \"\"\"\n@@ -2654,6 +2702,15 @@ class _RedirectAgentTestsMixin:\n         \"\"\"\n         self._testRedirectDefault(301)\n \n+    def test_redirect301Scheme(self):\n+        \"\"\"\n+        L{client.RedirectAgent} follows cross-scheme redirects.\n+        \"\"\"\n+        self._testRedirectDefault(\n+            301,\n+            crossScheme=True,\n+        )\n+\n     def test_redirect302(self):\n         \"\"\"\n         L{client.RedirectAgent} follows redirects on status code 302.\n@@ -2672,6 +2729,74 @@ class _RedirectAgentTestsMixin:\n         \"\"\"\n         self._testRedirectDefault(308)\n \n+    def _sensitiveHeadersTest(\n+        self, expectedHostHeader: bytes = b\"example.com\", **crossKwargs: bool\n+    ) -> None:\n+        \"\"\"\n+        L{client.RedirectAgent} scrubs sensitive headers when redirecting\n+        between differing origins.\n+        \"\"\"\n+        sensitiveHeaderValues = {\n+            b\"authorization\": [b\"sensitive-authnz\"],\n+            b\"cookie\": [b\"sensitive-cookie-data\"],\n+            b\"cookie2\": [b\"sensitive-cookie2-data\"],\n+            b\"proxy-authorization\": [b\"sensitive-proxy-auth\"],\n+            b\"wWw-auThentiCate\": [b\"sensitive-authn\"],\n+            b\"x-custom-sensitive\": [b\"sensitive-custom\"],\n+        }\n+        otherHeaderValues = {b\"x-random-header\": [b\"x-random-value\"]}\n+        allHeaders = Headers({**sensitiveHeaderValues, **otherHeaderValues})\n+        redirected = self._testRedirectDefault(301, requestHeaders=allHeaders)\n+\n+        def normHeaders(headers: Headers) -> dict:\n+            return {k.lower(): v for (k, v) in headers.getAllRawHeaders()}\n+\n+        sameOriginHeaders = normHeaders(redirected.headers)\n+        self.assertEquals(\n+            sameOriginHeaders,\n+            {\n+                b\"host\": [b\"example.com\"],\n+                **normHeaders(allHeaders),\n+            },\n+        )\n+\n+        redirectedElsewhere = self._testRedirectDefault(\n+            301,\n+            **crossKwargs,\n+            requestHeaders=Headers({**sensitiveHeaderValues, **otherHeaderValues}),\n+        )\n+        otherOriginHeaders = normHeaders(redirectedElsewhere.headers)\n+        self.assertEquals(\n+            otherOriginHeaders,\n+            {\n+                b\"host\": [expectedHostHeader],\n+                **normHeaders(Headers(otherHeaderValues)),\n+            },\n+        )\n+\n+    def test_crossDomainHeaders(self) -> None:\n+        \"\"\"\n+        L{client.RedirectAgent} scrubs sensitive headers when redirecting\n+        between differing domains.\n+        \"\"\"\n+        self._sensitiveHeadersTest(crossDomain=True, expectedHostHeader=b\"example.net\")\n+\n+    def test_crossPortHeaders(self) -> None:\n+        \"\"\"\n+        L{client.RedirectAgent} scrubs sensitive headers when redirecting\n+        between differing ports.\n+        \"\"\"\n+        self._sensitiveHeadersTest(\n+            crossPort=True, expectedHostHeader=b\"example.com:8443\"\n+        )\n+\n+    def test_crossSchemeHeaders(self) -> None:\n+        \"\"\"\n+        L{client.RedirectAgent} scrubs sensitive headers when redirecting\n+        between differing schemes.\n+        \"\"\"\n+        self._sensitiveHeadersTest(crossScheme=True)\n+\n     def _testRedirectToGet(self, code, method):\n         \"\"\"\n         L{client.RedirectAgent} changes the method to I{GET} when getting\n@@ -2878,7 +3003,10 @@ class _RedirectAgentTestsMixin:\n \n \n class RedirectAgentTests(\n-    TestCase, FakeReactorAndConnectMixin, _RedirectAgentTestsMixin, AgentTestsMixin\n+    FakeReactorAndConnectMixin,\n+    _RedirectAgentTestsMixin,\n+    AgentTestsMixin,\n+    runtimeTestCase,\n ):\n     \"\"\"\n     Tests for L{client.RedirectAgent}.\n@@ -2888,7 +3016,10 @@ class RedirectAgentTests(\n         \"\"\"\n         @return: a new L{twisted.web.client.RedirectAgent}\n         \"\"\"\n-        return client.RedirectAgent(self.buildAgentForWrapperTest(self.reactor))\n+        return client.RedirectAgent(\n+            self.buildAgentForWrapperTest(self.reactor),\n+            sensitiveHeaderNames=[b\"X-Custom-sensitive\"],\n+        )\n \n     def setUp(self):\n         self.reactor = self.createReactor()\n@@ -2912,7 +3043,10 @@ class RedirectAgentTests(\n \n \n class BrowserLikeRedirectAgentTests(\n-    TestCase, FakeReactorAndConnectMixin, _RedirectAgentTestsMixin, AgentTestsMixin\n+    FakeReactorAndConnectMixin,\n+    _RedirectAgentTestsMixin,\n+    AgentTestsMixin,\n+    runtimeTestCase,\n ):\n     \"\"\"\n     Tests for L{client.BrowserLikeRedirectAgent}.\n@@ -2923,7 +3057,8 @@ class BrowserLikeRedirectAgentTests(\n         @return: a new L{twisted.web.client.BrowserLikeRedirectAgent}\n         \"\"\"\n         return client.BrowserLikeRedirectAgent(\n-            self.buildAgentForWrapperTest(self.reactor)\n+            self.buildAgentForWrapperTest(self.reactor),\n+            sensitiveHeaderNames=[b\"x-Custom-sensitive\"],\n         )\n \n     def setUp(self):\n",
+  "summary": "",
+  "era": "recent",
+  "verified": true,
+  "instruction": "The package `twisted` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_307OnPost",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_crossDomainHeaders",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_crossPortHeaders",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_interface",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_noLocationField",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_noRedirect",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirect301",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirect302",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirect303",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirect307",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirect308",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirectLimit",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirectToGet301",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_redirectToGet302",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_relativeURI",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_relativeURIPreserveFragments",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_relativeURISchemeRelative",
+    "src.twisted.web.test.test_agent.BrowserLikeRedirectAgentTests::test_responseHistory",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_301OnPost",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_302OnPost",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_307OnPost",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_crossDomainHeaders",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_crossPortHeaders",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_interface",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_noLocationField",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_noRedirect",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirect301",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirect302",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirect303",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirect307",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirect308",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_redirectLimit",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_relativeURI",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_relativeURIPreserveFragments",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_relativeURISchemeRelative",
+    "src.twisted.web.test.test_agent.RedirectAgentTests::test_responseHistory"
+  ],
+  "p2p_tests": [
+    "src.twisted.web.test.test_agent.AgentMethodInjectionTests::test_methodWithCLRFRejected",
+    "src.twisted.web.test.test_agent.AgentMethodInjectionTests::test_methodWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.AgentMethodInjectionTests::test_methodWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.AgentTests::test_bindAddress",
+    "src.twisted.web.test.test_agent.AgentTests::test_connectHTTP",
+    "src.twisted.web.test.test_agent.AgentTests::test_connectTimeout",
+    "src.twisted.web.test.test_agent.AgentTests::test_connectUsesConnectionPool",
+    "src.twisted.web.test.test_agent.AgentTests::test_connectionFailed",
+    "src.twisted.web.test.test_agent.AgentTests::test_defaultPool",
+    "src.twisted.web.test.test_agent.AgentTests::test_endpointFactory",
+    "src.twisted.web.test.test_agent.AgentTests::test_endpointFactoryDefaultPool",
+    "src.twisted.web.test.test_agent.AgentTests::test_endpointFactoryPool",
+    "src.twisted.web.test.test_agent.AgentTests::test_headersUnmodified",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostIPv6Bracketed",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostOverride",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostProvided",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostValueNonStandardHTTP",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostValueNonStandardHTTPS",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostValueStandardHTTP",
+    "src.twisted.web.test.test_agent.AgentTests::test_hostValueStandardHTTPS",
+    "src.twisted.web.test.test_agent.AgentTests::test_integrationTestIPv4",
+    "src.twisted.web.test.test_agent.AgentTests::test_integrationTestIPv4Address",
+    "src.twisted.web.test.test_agent.AgentTests::test_integrationTestIPv6",
+    "src.twisted.web.test.test_agent.AgentTests::test_integrationTestIPv6Address",
+    "src.twisted.web.test.test_agent.AgentTests::test_interface",
+    "src.twisted.web.test.test_agent.AgentTests::test_nonBytesMethod",
+    "src.twisted.web.test.test_agent.AgentTests::test_nonDecodableURI",
+    "src.twisted.web.test.test_agent.AgentTests::test_nonPersistent",
+    "src.twisted.web.test.test_agent.AgentTests::test_persistent",
+    "src.twisted.web.test.test_agent.AgentTests::test_request",
+    "src.twisted.web.test.test_agent.AgentTests::test_requestAbsoluteURI",
+    "src.twisted.web.test.test_agent.AgentTests::test_requestMissingAbsoluteURI",
+    "src.twisted.web.test.test_agent.AgentTests::test_responseIncludesRequest",
+    "src.twisted.web.test.test_agent.AgentTests::test_unsupportedScheme",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_hostWithCRLFRejected",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_hostWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_hostWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_pathWithCRLFRejected",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_pathWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.AgentURIInjectionTests::test_pathWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_acceptHeaders",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_existingHeaders",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_interface",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_plainEncodingResponse",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_unknownEncoding",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentTests::test_unsupportedEncoding",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentWithGzipTests::test_brokenContent",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentWithGzipTests::test_flushData",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentWithGzipTests::test_flushError",
+    "src.twisted.web.test.test_agent.ContentDecoderAgentWithGzipTests::test_gzipEncodingResponse",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_emptyCookieJarRequest",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_interface",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_portCookie",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_portCookieOnWrongPort",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_requestWithCookie",
+    "src.twisted.web.test.test_agent.CookieAgentTests::test_secureCookieOnInsecureConnection",
+    "src.twisted.web.test.test_agent.CookieJarTests::test_extractCookies",
+    "src.twisted.web.test.test_agent.CookieJarTests::test_sendCookie",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_cancelWhileProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_defaultCooperator",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_failedReadWhileProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_inputClosedAtEOF",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_interface",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_knownLength",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_multipleStop",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_pauseProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_resumeProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_startProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_stopProducing",
+    "src.twisted.web.test.test_agent.FileBodyProducerTests::test_unknownLength",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_dontRetryIfFailedDueToCancel",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_dontRetryIfRetryAutomaticallyFalse",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_dontRetryIfShouldRetryReturnsFalse",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_notWrappedOnNewReturned",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_onlyRetryIdempotentMethods",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_onlyRetryIfNoResponseReceived",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_onlyRetryOnce",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_onlyRetryWithoutBody",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_retryIfFailedDueToNonCancelException",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_retryIfShouldRetryReturnsTrue",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_retryWithNewConnection",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolRetryTests::test_wrappedOnPersistentReturned",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_cancelGetConnectionCancelsEndpointConnect",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_closeCachedConnections",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_getCachedConnection",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_getReturnsNewIfCacheEmpty",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_getSkipsDisconnected",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_getUsesQuiescentCallback",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_maxPersistentPerHost",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_newConnection",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_putExceedsMaxPersistent",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_putNotQuiescent",
+    "src.twisted.web.test.test_agent.HTTPConnectionPoolTests::test_putStartsTimeout",
+    "src.twisted.web.test.test_agent.ProxyAgentTests::test_connectUsesConnectionPool",
+    "src.twisted.web.test.test_agent.ProxyAgentTests::test_interface",
+    "src.twisted.web.test.test_agent.ProxyAgentTests::test_nonBytesMethod",
+    "src.twisted.web.test.test_agent.ProxyAgentTests::test_nonPersistent",
+    "src.twisted.web.test.test_agent.ProxyAgentTests::test_proxyRequest",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_cancel",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_deprecatedTransport",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_deprecatedTransportNoWarning",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_otherErrors",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_success",
+    "src.twisted.web.test.test_agent.ReadBodyTests::test_withPotentialDataLoss",
+    "src.twisted.web.test.test_agent.RequestMethodInjectionTests::test_methodWithCLRFRejected",
+    "src.twisted.web.test.test_agent.RequestMethodInjectionTests::test_methodWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestMethodInjectionTests::test_methodWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_hostWithCRLFRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_hostWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_hostWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_pathWithCRLFRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_pathWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestURIInjectionTests::test_pathWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToMethodInjectionTests::test_methodWithCLRFRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToMethodInjectionTests::test_methodWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToMethodInjectionTests::test_methodWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_hostWithCRLFRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_hostWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_hostWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_pathWithCRLFRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_pathWithNonASCIIRejected",
+    "src.twisted.web.test.test_agent.RequestWriteToURIInjectionTests::test_pathWithWithUnprintableASCIIRejected",
+    "src.twisted.web.test.test_agent.WebClientContextFactoryTests::test_deprecated",
+    "src.twisted.web.test.test_agent.WebClientContextFactoryTests::test_missingSSL"
+  ],
+  "test_files": [
+    "src/twisted/web/test/test_agent.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 124,
+  "n_after_pass": 160,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2022-27",
+      "summary": "",
+      "details": "twisted is an event-driven networking engine written in Python. In affected versions twisted exposes cookies and authorization headers when following cross-origin redirects. This issue is present in the `twited.web.RedirectAgent` and `twisted.web. BrowserLikeRedirectAgent` functions. Users are advised to upgrade. There are no known workarounds.",
+      "aliases": [
+        "CVE-2022-21712",
+        "GHSA-92x2-jw7w-xvvx"
+      ],
+      "published": "2022-02-07T22:15:00Z",
+      "modified": "2023-11-08T04:08:09.047388Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "twisted",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/twisted/twisted",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "af8fe78542a6f2bf2235ccee8158d9c88d31e8e2"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "11.1.0"
+                },
+                {
+                  "fixed": "22.1.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "FIX",
+          "url": "https://github.com/twisted/twisted/commit/af8fe78542a6f2bf2235ccee8158d9c88d31e8e2"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/releases/tag/twisted-22.1.0"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/twisted/twisted/security/advisories/GHSA-92x2-jw7w-xvvx"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-21712"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://pypi.org/project/Twisted/"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2022-27",
+      "related_advisories": [
+        {
+          "id": "GHSA-92x2-jw7w-xvvx",
+          "summary": "Cookie and header exposure in twisted",
+          "details": "### Impact\n\nCookie and Authorization headers are leaked when following cross-origin redirects in `twited.web.client.RedirectAgent` and `twisted.web.client.BrowserLikeRedirectAgent`.",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-92x2-jw7w-xvvx"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "af8fe78542a6f2bf2235ccee8158d9c88d31e8e2",
+      "authored_at": "2022-01-23T18:42:58-05:00",
+      "committed_at": "2022-01-23T18:42:58-05:00",
+      "message": "Merge pull request from GHSA-92x2-jw7w-xvvx\n\n10294 Advisory fix 1",
+      "url": "https://github.com/twisted/twisted/commit/af8fe78542a6f2bf2235ccee8158d9c88d31e8e2"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:40:57+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

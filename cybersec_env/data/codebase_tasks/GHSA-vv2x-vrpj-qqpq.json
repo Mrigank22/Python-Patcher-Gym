@@ -1,0 +1,330 @@
+{
+  "id": "GHSA-vv2x-vrpj-qqpq",
+  "aliases": [
+    "CVE-2021-23980",
+    "PYSEC-2021-865"
+  ],
+  "cwes": [
+    "CWE-79"
+  ],
+  "severity": "MODERATE",
+  "package": "bleach",
+  "repo": {
+    "owner": "mozilla",
+    "name": "bleach",
+    "url": "https://github.com/mozilla/bleach"
+  },
+  "base_commit": "c045a8b2a02bfb77bb9cacd5d3e5926c056074d2",
+  "fix_commit": "79b7a3c5e56a09d1d323a5006afa59b56162eb13",
+  "python_requires": ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*",
+  "changed_source_files": [
+    "bleach/__init__.py",
+    "bleach/html5lib_shim.py",
+    "bleach/sanitizer.py"
+  ],
+  "changed_test_files": [
+    "tests/test_clean.py"
+  ],
+  "source_patch": "diff --git a/bleach/__init__.py b/bleach/__init__.py\nindex 02301f7..6cc994c 100644\n--- a/bleach/__init__.py\n+++ b/bleach/__init__.py\n@@ -18,9 +18,9 @@ from bleach.sanitizer import (\n \n \n # yyyymmdd\n-__releasedate__ = \"20210126\"\n+__releasedate__ = \"20210201\"\n # x.y.z or x.y.z.dev0 -- semver\n-__version__ = \"3.2.3\"\n+__version__ = \"3.3.0\"\n VERSION = packaging.version.Version(__version__)\n \n \ndiff --git a/bleach/html5lib_shim.py b/bleach/html5lib_shim.py\nindex c71947e..b886ca5 100644\n--- a/bleach/html5lib_shim.py\n+++ b/bleach/html5lib_shim.py\n@@ -48,6 +48,7 @@ from bleach._vendor.html5lib._inputstream import (\n     HTMLInputStream,\n )  # noqa: E402 module level import not at top of file\n from bleach._vendor.html5lib.serializer import (\n+    escape,\n     HTMLSerializer,\n )  # noqa: E402 module level import not at top of file\n from bleach._vendor.html5lib._tokenizer import (\ndiff --git a/bleach/sanitizer.py b/bleach/sanitizer.py\nindex bc66ad2..0f5b7cc 100644\n--- a/bleach/sanitizer.py\n+++ b/bleach/sanitizer.py\n@@ -371,6 +371,10 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):\n \n         elif token_type == \"Comment\":\n             if not self.strip_html_comments:\n+                # call lxml.sax.saxutils to escape &, <, and > in addition to \" and '\n+                token[\"data\"] = html5lib_shim.escape(\n+                    token[\"data\"], entities={'\"': \"&quot;\", \"'\": \"&#x27;\"}\n+                )\n                 return token\n             else:\n                 return None\n",
+  "test_patch": "diff --git a/tests/test_clean.py b/tests/test_clean.py\nindex 1cd58df..7c56575 100644\n--- a/tests/test_clean.py\n+++ b/tests/test_clean.py\n@@ -739,6 +739,53 @@ def test_namespace_rc_data_element_strip_false(\n     )\n \n \n+@pytest.mark.parametrize(\n+    \"namespace_tag, end_tag, data, expected\",\n+    [\n+        (\n+            \"math\",\n+            \"p\",\n+            \"<math></p><style><!--</style><img src/onerror=alert(1)>\",\n+            \"<math><p></p><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></math>\",\n+        ),\n+        (\n+            \"math\",\n+            \"br\",\n+            \"<math></br><style><!--</style><img src/onerror=alert(1)>\",\n+            \"<math><br><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></math>\",\n+        ),\n+        (\n+            \"svg\",\n+            \"p\",\n+            \"<svg></p><style><!--</style><img src/onerror=alert(1)>\",\n+            \"<svg><p></p><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></svg>\",\n+        ),\n+        (\n+            \"svg\",\n+            \"br\",\n+            \"<svg></br><style><!--</style><img src/onerror=alert(1)>\",\n+            \"<svg><br><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></svg>\",\n+        ),\n+    ],\n+)\n+def test_html_comments_escaped(namespace_tag, end_tag, data, expected):\n+    # refs: bug 1689399 / GHSA-vv2x-vrpj-qqpq\n+    #\n+    # p and br can be just an end tag (e.g. </p> == <p></p>)\n+    #\n+    # In browsers:\n+    #\n+    # * img and other tags break out of the svg or math namespace (e.g. <svg><img></svg> == <svg><img></svg>)\n+    # * style does not (e.g. <svg><style></svg> == <svg><style></style></svg>)\n+    # * the breaking tag ejects trailing elements (e.g. <svg><img><style></style></svg> == <svg></svg><img><style></style>)\n+    #\n+    # the ejected elements can trigger XSS\n+    assert (\n+        clean(data, tags=[namespace_tag, end_tag, \"style\"], strip_comments=False)\n+        == expected\n+    )\n+\n+\n def get_ids_and_tests():\n     \"\"\"Retrieves regression tests from data/ directory\n \n",
+  "summary": "Cross-site scripting in Bleach",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `bleach` has a security vulnerability (CWE-79). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_clean::test_html_comments_escaped[math-br-<math></br><style><!--</style><img src/onerror=alert(1)>-<math><br><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></math>]",
+    "tests.test_clean::test_html_comments_escaped[math-p-<math></p><style><!--</style><img src/onerror=alert(1)>-<math><p></p><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></math>]",
+    "tests.test_clean::test_html_comments_escaped[svg-br-<svg></br><style><!--</style><img src/onerror=alert(1)>-<svg><br><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></svg>]",
+    "tests.test_clean::test_html_comments_escaped[svg-p-<svg></p><style><!--</style><img src/onerror=alert(1)>-<svg><p></p><style><!--&lt;/style&gt;&lt;img src/onerror=alert(1)&gt;--></style></svg>]"
+  ],
+  "p2p_tests": [
+    "tests.test_clean.TestCleaner::test_basics",
+    "tests.test_clean.TestCleaner::test_filters",
+    "tests.test_clean::test_allowed_styles",
+    "tests.test_clean::test_attributes_callable",
+    "tests.test_clean::test_attributes_list",
+    "tests.test_clean::test_attributes_tag_callable",
+    "tests.test_clean::test_attributes_tag_list",
+    "tests.test_clean::test_attributes_wildcard",
+    "tests.test_clean::test_attributes_wildcard_callable",
+    "tests.test_clean::test_bare_entities_get_escaped_correctly[an & entity-an &amp; entity]",
+    "tests.test_clean::test_bare_entities_get_escaped_correctly[an < entity-an &lt; entity]",
+    "tests.test_clean::test_bare_entities_get_escaped_correctly[tag < <em>and</em> entity-tag &lt; <em>and</em> entity]",
+    "tests.test_clean::test_character_entities_handling[&#-&amp;#]",
+    "tests.test_clean::test_character_entities_handling[&#123;-&#123;]",
+    "tests.test_clean::test_character_entities_handling[&#34;-&#34;]",
+    "tests.test_clean::test_character_entities_handling[&#39;&#34;-&#39;&#34;]",
+    "tests.test_clean::test_character_entities_handling[&#39;-&#39;]",
+    "tests.test_clean::test_character_entities_handling[&#<-&amp;#&lt;]",
+    "tests.test_clean::test_character_entities_handling[&#x0007B;-&#x0007B;]",
+    "tests.test_clean::test_character_entities_handling[&#x0007b;-&#x0007b;]",
+    "tests.test_clean::test_character_entities_handling[&&amp; is cool-&amp;&amp; is cool]",
+    "tests.test_clean::test_character_entities_handling[&amp; is cool &amp;&-&amp; is cool &amp;&amp;]",
+    "tests.test_clean::test_character_entities_handling[&amp;-&amp;]",
+    "tests.test_clean::test_character_entities_handling[&amp;is cool-&amp;is cool]",
+    "tests.test_clean::test_character_entities_handling[&lt;em&gt;strong&lt;/em&gt;-&lt;em&gt;strong&lt;/em&gt;]",
+    "tests.test_clean::test_character_entities_handling[&nbsp; test string &nbsp;-&nbsp; test string &nbsp;]",
+    "tests.test_clean::test_character_entities_handling[&nbsp;-&nbsp;]",
+    "tests.test_clean::test_character_entities_handling[&xx;-&xx;]",
+    "tests.test_clean::test_character_entities_handling[<a href=\"?art&amp;copy\">foo</a>-<a href=\"?art&amp;copy\">foo</a>]",
+    "tests.test_clean::test_character_entities_handling[<a href=\"?this=&gt;that\">foo</a>-<a href=\"?this=&gt;that\">foo</a>]",
+    "tests.test_clean::test_character_entities_handling[<a href=\"http://example.com/&xx;\">foo</a>-<a href=\"http://example.com/&amp;xx;\">foo</a>]",
+    "tests.test_clean::test_character_entities_handling[<a href=\"http://example.com?active=true&current=true\">foo</a>-<a href=\"http://example.com?active=true&amp;current=true\">foo</a>]",
+    "tests.test_clean::test_character_entities_handling[cool &amp;-cool &amp;]",
+    "tests.test_clean::test_character_entities_handling[http://example.com?active=true&current=true-http://example.com?active=true&amp;current=true]",
+    "tests.test_clean::test_character_entities_handling[this &amp that-this &amp;amp that]",
+    "tests.test_clean::test_clean_idempotent",
+    "tests.test_clean::test_comments[<!-- comment -->text-False-<!-- comment -->text]",
+    "tests.test_clean::test_comments[<!-- comment -->text-True-text]",
+    "tests.test_clean::test_comments[<!-- open comment-False-<!-- open comment-->]",
+    "tests.test_clean::test_comments[<!-- open comment-True-]",
+    "tests.test_clean::test_comments[<!-- this is a comment -->-True-]",
+    "tests.test_clean::test_comments[<!--comment-->text-False-<!--comment-->text]",
+    "tests.test_clean::test_comments[<!--comment-->text-True-text]",
+    "tests.test_clean::test_comments[<!--open comment-False-<!--open comment-->]",
+    "tests.test_clean::test_comments[<!--open comment-True-]",
+    "tests.test_clean::test_comments[text<!-- comment -->-False-text<!-- comment -->]",
+    "tests.test_clean::test_comments[text<!-- comment -->-True-text]",
+    "tests.test_clean::test_comments[text<!--comment-->-False-text<!--comment-->]",
+    "tests.test_clean::test_comments[text<!--comment-->-True-text]",
+    "tests.test_clean::test_content_has_allowed_html[an <strong>allowed</strong> tag-an <strong>allowed</strong> tag]",
+    "tests.test_clean::test_content_has_allowed_html[another <em>good</em> tag-another <em>good</em> tag]",
+    "tests.test_clean::test_content_has_no_html",
+    "tests.test_clean::test_disallowed_attr",
+    "tests.test_clean::test_empty",
+    "tests.test_clean::test_escaping_tags[</ sarcasm >-&lt;/ sarcasm &gt;]",
+    "tests.test_clean::test_escaping_tags[</ sarcasm>-&lt;/ sarcasm&gt;]",
+    "tests.test_clean::test_escaping_tags[</3-&lt;/3]",
+    "tests.test_clean::test_escaping_tags[</sarcasm>-&lt;/sarcasm&gt;]",
+    "tests.test_clean::test_escaping_tags[<bar@example.com>-&lt;bar@example.com&gt;]",
+    "tests.test_clean::test_escaping_tags[<img src=\"javascript:alert('XSS');\">-&lt;img src=\"javascript:alert('XSS');\"&gt;]",
+    "tests.test_clean::test_escaping_tags[<isindex>-&lt;isindex&gt;]",
+    "tests.test_clean::test_escaping_tags[<sarcasm/>-&lt;sarcasm/&gt;]",
+    "tests.test_clean::test_escaping_tags[<sarcasm>-&lt;sarcasm&gt;]",
+    "tests.test_clean::test_escaping_tags[<script>safe()</script>-&lt;script&gt;safe()&lt;/script&gt;]",
+    "tests.test_clean::test_escaping_tags[<style>body{}</style>-&lt;style&gt;body{}&lt;/style&gt;]",
+    "tests.test_clean::test_escaping_tags[<ul><li><script></li></ul>-<ul><li>&lt;script&gt;</li></ul>]",
+    "tests.test_clean::test_escaping_tags[Favorite movie: <name of movie>-Favorite movie: &lt;name of movie&gt;]",
+    "tests.test_clean::test_href_with_wrong_tag",
+    "tests.test_clean::test_html_is_lowercased",
+    "tests.test_clean::test_invalid_char_in_tag",
+    "tests.test_clean::test_invalid_filter_attr",
+    "tests.test_clean::test_invalid_uri_does_not_raise_error",
+    "tests.test_clean::test_invisible_characters[1\\x0723-1?23]",
+    "tests.test_clean::test_invisible_characters[1\\x0823-1?23]",
+    "tests.test_clean::test_invisible_characters[1\\x0b23-1?23]",
+    "tests.test_clean::test_invisible_characters[1\\x0c23-1?23]",
+    "tests.test_clean::test_invisible_characters[import y\\x08ose\\x08m\\x08i\\x08t\\x08e\\x08-import y?ose?m?i?t?e?]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-iframe-<math><iframe><img src=x onerror=alert(1)>-<math><iframe>&lt;img src=x onerror=alert(1)&gt;</iframe></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-noembed-<math><noembed><img src=x onerror=alert(1)>-<math><noembed>&lt;img src=x onerror=alert(1)&gt;</noembed></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-noframes-<math><noframes><img src=x onerror=alert(1)>-<math><noframes>&lt;img src=x onerror=alert(1)&gt;</noframes></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-noscript-<math><noscript><img src=x onerror=alert(1)>-<math><noscript>&lt;img src=x onerror=alert(1)&gt;</noscript></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-script-<math><script><img src=x onerror=alert(1)>-<math><script>&lt;img src=x onerror=alert(1)&gt;</script></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-style-<math><style><img src=x onerror=alert(1)>-<math><style>&lt;img src=x onerror=alert(1)&gt;</style></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[math-xmp-<math><xmp><img src=x onerror=alert(1)>-<math><xmp>&lt;img src=x onerror=alert(1)&gt;</xmp></math>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-iframe-<svg><iframe><img src=x onerror=alert(1)>-<svg><iframe>&lt;img src=x onerror=alert(1)&gt;</iframe></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-noembed-<svg><noembed><img src=x onerror=alert(1)>-<svg><noembed>&lt;img src=x onerror=alert(1)&gt;</noembed></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-noframes-<svg><noframes><img src=x onerror=alert(1)>-<svg><noframes>&lt;img src=x onerror=alert(1)&gt;</noframes></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-noscript-<svg><noscript><img src=x onerror=alert(1)>-<svg><noscript>&lt;img src=x onerror=alert(1)&gt;</noscript></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-script-<svg><script><img src=x onerror=alert(1)>-<svg><script>&lt;img src=x onerror=alert(1)&gt;</script></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-style-<svg><style><img src=x onerror=alert(1)>-<svg><style>&lt;img src=x onerror=alert(1)&gt;</style></svg>]",
+    "tests.test_clean::test_namespace_rc_data_element_strip_false[svg-xmp-<svg><xmp><img src=x onerror=alert(1)>-<svg><xmp>&lt;img src=x onerror=alert(1)&gt;</xmp></svg>]",
+    "tests.test_clean::test_nested_script_tag",
+    "tests.test_clean::test_nonexistent_namespace",
+    "tests.test_clean::test_noscript_rawtag_[iframe-<noscript><iframe></noscript><img src=x onerror=alert(1) />-<noscript>&lt;iframe&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[noembed-<noscript><noembed></noscript><img src=x onerror=alert(1) />-<noscript>&lt;noembed&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[noframes-<noscript><noframes></noscript><img src=x onerror=alert(1) />-<noscript>&lt;noframes&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[script-<noscript><script></noscript><img src=x onerror=alert(1) />-<noscript>&lt;script&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[style-<noscript><style></noscript><img src=x onerror=alert(1) />-<noscript>&lt;style&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[textarea-<noscript><textarea></noscript><img src=x onerror=alert(1) />-<noscript>&lt;textarea&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[title-<noscript><title></noscript><img src=x onerror=alert(1) />-<noscript>&lt;title&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_noscript_rawtag_[xmp-<noscript><xmp></noscript><img src=x onerror=alert(1) />-<noscript>&lt;xmp&gt;</noscript>&lt;img src=x onerror=alert(1) /&gt;]",
+    "tests.test_clean::test_only_text_is_cleaned",
+    "tests.test_clean::test_poster_attribute",
+    "tests.test_clean::test_regressions[1.test]",
+    "tests.test_clean::test_regressions[10.test]",
+    "tests.test_clean::test_regressions[11.test]",
+    "tests.test_clean::test_regressions[12.test]",
+    "tests.test_clean::test_regressions[13.test]",
+    "tests.test_clean::test_regressions[14.test]",
+    "tests.test_clean::test_regressions[15.test]",
+    "tests.test_clean::test_regressions[16.test]",
+    "tests.test_clean::test_regressions[17.test]",
+    "tests.test_clean::test_regressions[18.test]",
+    "tests.test_clean::test_regressions[19.test]",
+    "tests.test_clean::test_regressions[2.test]",
+    "tests.test_clean::test_regressions[20.test]",
+    "tests.test_clean::test_regressions[3.test]",
+    "tests.test_clean::test_regressions[4.test]",
+    "tests.test_clean::test_regressions[5.test]",
+    "tests.test_clean::test_regressions[6.test]",
+    "tests.test_clean::test_regressions[7.test]",
+    "tests.test_clean::test_regressions[8.test]",
+    "tests.test_clean::test_regressions[9.test]",
+    "tests.test_clean::test_self_closing_tags_self_close[area]",
+    "tests.test_clean::test_self_closing_tags_self_close[base]",
+    "tests.test_clean::test_self_closing_tags_self_close[br]",
+    "tests.test_clean::test_self_closing_tags_self_close[embed]",
+    "tests.test_clean::test_self_closing_tags_self_close[hr]",
+    "tests.test_clean::test_self_closing_tags_self_close[img]",
+    "tests.test_clean::test_self_closing_tags_self_close[input]",
+    "tests.test_clean::test_self_closing_tags_self_close[link]",
+    "tests.test_clean::test_self_closing_tags_self_close[meta]",
+    "tests.test_clean::test_self_closing_tags_self_close[param]",
+    "tests.test_clean::test_self_closing_tags_self_close[source]",
+    "tests.test_clean::test_self_closing_tags_self_close[track]",
+    "tests.test_clean::test_stripping_tags[</ sarcasm >-kwargs11-&lt;/ sarcasm &gt;]",
+    "tests.test_clean::test_stripping_tags[</ sarcasm>-kwargs10-&lt;/ sarcasm&gt;]",
+    "tests.test_clean::test_stripping_tags[</3-kwargs14-&lt;/3]",
+    "tests.test_clean::test_stripping_tags[</sarcasm>-kwargs9-]",
+    "tests.test_clean::test_stripping_tags[<isindex>-kwargs6-]",
+    "tests.test_clean::test_stripping_tags[<p><a href=\"http://example.com/\"><img src=\"http://example.com/\"></a></p>-kwargs5-<p><a href=\"http://example.com/\"></a></p>]",
+    "tests.test_clean::test_stripping_tags[<p><a href=\"http://example.com/\">link text</a></p>-kwargs2-<p>link text</p>]",
+    "tests.test_clean::test_stripping_tags[<p><span>multiply <span>nested <span>text</span></span></span></p>-kwargs3-<p>multiply nested text</p>]",
+    "tests.test_clean::test_stripping_tags[<sarcasm>-kwargs8-]",
+    "tests.test_clean::test_stripping_tags[<ul><li><script></li></ul>-kwargs4-<ul><li></li></ul>]",
+    "tests.test_clean::test_stripping_tags[Favorite movie: <name of movie>-kwargs13-Favorite movie: ]",
+    "tests.test_clean::test_stripping_tags[Foo <bar@example.com>-kwargs12-Foo ]",
+    "tests.test_clean::test_stripping_tags[Yeah right <sarcasm/>-kwargs7-Yeah right ]",
+    "tests.test_clean::test_stripping_tags[a test <em>with</em> <b>html</b> tags-kwargs0-a test <em>with</em> <b>html</b> tags]",
+    "tests.test_clean::test_stripping_tags[a test <em>with</em> <img src=\"http://example.com/\"> <b>html</b> tags-kwargs1-a test <em>with</em>  <b>html</b> tags]",
+    "tests.test_clean::test_stripping_tags_is_safe[<scri<scri<script>pt>pt>alert(1)</script>-pt&gt;pt&gt;alert(1)]",
+    "tests.test_clean::test_stripping_tags_is_safe[<scri<script>pt>alert(1)</scr</script>ipt>-pt&gt;alert(1)ipt&gt;]",
+    "tests.test_clean::test_svg_allow_local_href[<svg><pattern id=\"patt1\" href=\"#patt2\"></pattern></svg>-<svg><pattern href=\"#patt2\" id=\"patt1\"></pattern></svg>]",
+    "tests.test_clean::test_svg_allow_local_href[<svg><pattern id=\"patt1\" xlink:href=\"#patt2\"></pattern></svg>-<svg><pattern id=\"patt1\" href=\"#patt2\"></pattern></svg>]",
+    "tests.test_clean::test_svg_allow_local_href_nonlocal[<svg><pattern id=\"patt1\" href=\"https://example.com/patt\"></pattern></svg>-<svg><pattern id=\"patt1\"></pattern></svg>]",
+    "tests.test_clean::test_svg_allow_local_href_nonlocal[<svg><pattern id=\"patt1\" xlink:href=\"https://example.com/patt\"></pattern></svg>-<svg><pattern id=\"patt1\"></pattern></svg>]",
+    "tests.test_clean::test_svg_attr_val_allows_ref",
+    "tests.test_clean::test_unclosed_tag",
+    "tests.test_clean::test_unquoted_attr_values_are_quoted",
+    "tests.test_clean::test_unquoted_event_handler_attr_value",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"#example.com\">foo</a>-kwargs4-<a href=\"#example.com\">foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"&#14;javascript:alert(1)\">alert</a>-kwargs18-<a>alert</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"192.168.100.100\">foo</a>-kwargs15-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"192.168.100.100\">valid</a>-kwargs9-<a href=\"192.168.100.100\">valid</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"192.168.100.100:8000\">foo</a>-kwargs16-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"192.168.100.100:8000\">valid</a>-kwargs10-<a href=\"192.168.100.100:8000\">valid</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"example.com\">foo</a>-kwargs11-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"example.com\">valid</a>-kwargs5-<a href=\"example.com\">valid</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"example.com:8000\">foo</a>-kwargs12-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"file:///tmp/foo\">foo</a>-kwargs1-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"http://example.com\">invalid href</a>-kwargs3-<a>invalid href</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"http://example.com/?foo&nbsp;bar\">foo</a>-kwargs19-<a href=\"http://example.com/?foo&nbsp;bar\">foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"javas&#x09;cript:alert(1)\">alert</a>-kwargs17-<a>alert</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"javascript:alert('XSS')\">xss</a>-kwargs0-<a>xss</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"localhost\">foo</a>-kwargs13-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"localhost\">valid</a>-kwargs7-<a href=\"localhost\">valid</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"localhost:8000\">foo</a>-kwargs14-<a>foo</a>]",
+    "tests.test_clean::test_uri_value_allowed_protocols[<a href=\"myprotocol://more_text\">allowed href</a>-kwargs2-<a href=\"myprotocol://more_text\">allowed href</a>]"
+  ],
+  "test_files": [
+    "tests/test_clean.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 178,
+  "n_after_pass": 182,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-vv2x-vrpj-qqpq",
+      "summary": "Cross-site scripting in Bleach",
+      "details": "### Impact                                                                                                                                                                                                                                                    \n\nA [mutation XSS](https://cure53.de/fp170.pdf) affects users calling `bleach.clean` with all of:\n\n* `svg` or `math` in the allowed tags\n* `p` or `br` in allowed tags\n* `style`, `title`, `noscript`, `script`, `textarea`, `noframes`, `iframe`, or `xmp` in allowed tags\n* the keyword argument `strip_comments=False`\n\nNote: none of the above tags are in the default allowed tags and `strip_comments` defaults to `True`.\n\n### Patches\n\nUsers are encouraged to upgrade to bleach v3.3.0 or greater.\n\nNote: bleach v3.3.0 introduces a breaking change to escape HTML comments by default.\n\n### Workarounds\n\n* modify `bleach.clean` calls to at least one of:\n  * not allow the `style`, `title`, `noscript`, `script`, `textarea`, `noframes`, `iframe`, or `xmp` tag\n  * not allow `svg` or `math` tags\n  * not allow `p` or `br` tags\n  * set `strip_comments=True`\n\n* A strong [Content-Security-Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) without `unsafe-inline` and `unsafe-eval` [`script-src`s](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src)) will also help mitigate the risk.\n\n### References\n\n* https://bugzilla.mozilla.org/show_bug.cgi?id=1689399\n* https://advisory.checkmarx.net/advisory/CX-2021-4303\n* https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-23980\n* https://cure53.de/fp170.pdf\n\n### Credits\n\n* Reported by [Yaniv Nizry](https://twitter.com/ynizry) from the CxSCA AppSec group at Checkmarx\n* Additional eject tags not mentioned in the original advisory and the CSP mitigation line being truncated in the revised advisory reported by [Michał Bentkowski](https://twitter.com/SecurityMB) at Securitum\n\n### For more information\n\nIf you have any questions or comments about this advisory:\n\n* Open an issue at [https://github.com/mozilla/bleach/issues](https://github.com/mozilla/bleach/issues)\n* Email us at [<email>](mailto:<email>)",
+      "aliases": [
+        "CVE-2021-23980",
+        "PYSEC-2021-865"
+      ],
+      "published": "2021-02-02T17:58:40Z",
+      "modified": "2026-07-08T06:27:25.981488640Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "package": "bleach",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "3.3.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/mozilla/bleach/security/advisories/GHSA-vv2x-vrpj-qqpq"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-23980"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/mozilla/bleach/commit/79b7a3c5e56a09d1d323a5006afa59b56162eb13"
+        },
+        {
+          "type": "WEB",
+          "url": "https://advisory.checkmarx.net/advisory/CX-2021-4303"
+        },
+        {
+          "type": "WEB",
+          "url": "https://bugzilla.mozilla.org/show_bug.cgi?id=1689399"
+        },
+        {
+          "type": "WEB",
+          "url": "https://bugzilla.mozilla.org/show_bug.cgi?id=CVE-2021-23980"
+        },
+        {
+          "type": "WEB",
+          "url": "https://cure53.de/fp170.pdf"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/mozilla/bleach"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/mozilla/bleach/blob/79b7a3c5e56a09d1d323a5006afa59b56162eb13/CHANGES#L4"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/bleach/PYSEC-2021-865.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://pypi.org/project/bleach"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-vv2x-vrpj-qqpq",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2021-865",
+          "summary": "",
+          "details": "In Mozilla Bleach before 3.3.0, a mutation XSS affects users calling bleach.clean with math or svg; p or br; and style, title, noscript, script, textarea, noframes, iframe, or xmp tags with strip_comments=False.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2021-865"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "79b7a3c5e56a09d1d323a5006afa59b56162eb13",
+      "authored_at": "2021-02-01T12:11:15-05:00",
+      "committed_at": "2021-02-01T12:11:15-05:00",
+      "message": "Merge pull request from GHSA-vv2x-vrpj-qqpq\n\nFix ghsa vv2x vrpj qqpq",
+      "url": "https://github.com/mozilla/bleach/commit/79b7a3c5e56a09d1d323a5006afa59b56162eb13"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T19:17:39+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

@@ -200,5 +200,118 @@
   ],
   "python": "3.11",
   "n_before_pass": 124,
-  "n_after_pass": 160
+  "n_after_pass": 160,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-92x2-jw7w-xvvx",
+      "summary": "Cookie and header exposure in twisted",
+      "details": "### Impact\n\nCookie and Authorization headers are leaked when following cross-origin redirects in `twited.web.client.RedirectAgent` and `twisted.web.client.BrowserLikeRedirectAgent`.",
+      "aliases": [
+        "CVE-2022-21712",
+        "PYSEC-2022-27"
+      ],
+      "published": "2022-02-07T22:36:00Z",
+      "modified": "2024-11-25T18:48:47.216319Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-200",
+        "CWE-346"
+      ],
+      "affected": [
+        {
+          "package": "twisted",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "11.1.0"
+                },
+                {
+                  "fixed": "22.1.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/security/advisories/GHSA-92x2-jw7w-xvvx"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-21712"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/commit/af8fe78542a6f2bf2235ccee8158d9c88d31e8e2"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/twisted/PYSEC-2022-27.yaml"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/twisted/twisted"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/twisted/twisted/releases/tag/twisted-22.1.0"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2022/02/msg00021.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/7U6KYDTOLPICAVSR34G2WRYLFBD2YW5K"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/GLKHA6WREIVAMBQD7KKWYHPHGGNKMAG6"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7U6KYDTOLPICAVSR34G2WRYLFBD2YW5K"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/GLKHA6WREIVAMBQD7KKWYHPHGGNKMAG6"
+        },
+        {
+          "type": "WEB",
+          "url": "https://pypi.org/project/Twisted"
+        },
+        {
+          "type": "WEB",
+          "url": "https://security.gentoo.org/glsa/202301-02"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-92x2-jw7w-xvvx",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2022-27",
+          "summary": "",
+          "details": "twisted is an event-driven networking engine written in Python. In affected versions twisted exposes cookies and authorization headers when following cross-origin redirects. This issue is present in the `twited.web.RedirectAgent` and `twisted.web. BrowserLikeRedirectAgent` functions. Users are advised to upgrade. There are no known workarounds.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2022-27"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "af8fe78542a6f2bf2235ccee8158d9c88d31e8e2",
+      "authored_at": "2022-01-23T18:42:58-05:00",
+      "committed_at": "2022-01-23T18:42:58-05:00",
+      "message": "Merge pull request from GHSA-92x2-jw7w-xvvx\n\n10294 Advisory fix 1",
+      "url": "https://github.com/twisted/twisted/commit/af8fe78542a6f2bf2235ccee8158d9c88d31e8e2"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:25+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

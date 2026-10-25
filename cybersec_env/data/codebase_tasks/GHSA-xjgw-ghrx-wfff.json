@@ -153,5 +153,82 @@
   ],
   "python": "3.11",
   "n_before_pass": 112,
-  "n_after_pass": 113
+  "n_after_pass": 113,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-xjgw-ghrx-wfff",
+      "summary": "Roundup Cross-site Scripting Vulnerability",
+      "details": "Roundup before 2.4.0 allows XSS via a SCRIPT element in an HTTP Referer header.",
+      "aliases": [
+        "CVE-2024-39125",
+        "PYSEC-2024-64"
+      ],
+      "published": "2024-07-17T21:31:38Z",
+      "modified": "2025-03-20T19:14:05.557584Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "package": "roundup",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.4.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-39125"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/roundup-tracker/roundup/commit/860e3c8d07b05b77c6cdf5d0b6e7dbfe51b11631"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/roundup/PYSEC-2024-64.yaml"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/roundup-tracker/roundup"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.roundup-tracker.org"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.roundup-tracker.org/docs/security.html#cve-announcements"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-xjgw-ghrx-wfff",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "860e3c8d07b05b77c6cdf5d0b6e7dbfe51b11631",
+      "authored_at": "2024-07-09T09:07:09-04:00",
+      "committed_at": "2024-07-09T09:07:09-04:00",
+      "message": "fix(security): fix CVE-2024-39124, CVE-2024-39124, and CVE-2024-39125\n\nDirections for fixing:\n\n  * `CVE-2024-39124`_ - :ref:`classhelpers (_generic.help.html) are\n    vulnerable to an XSS attack. <CVE-2024-39124>` Requires fixing\n    tracker homes.\n  * `CVE-2024-39125`_ - :ref:`if Referer header is set to a script\n    tag, it will be executed. <CVE-2024-39125>` Fixed in release 2.4.0,\n    directions available for fixing in prior versions.\n  * `CVE-2024-39126`_ - :ref:`PDF, XML and SVG files downloaded from\n    an issue can contain embedded JavaScript which is\n    executed. <CVE-2024-39126>` Fixed in release 2.4.0, directions\n    available for fixing in prior versions.\n\nprior to 2.4.0 release this weekend that fixes the last two CVE's.",
+      "url": "https://github.com/roundup-tracker/roundup/commit/860e3c8d07b05b77c6cdf5d0b6e7dbfe51b11631"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:40:22+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

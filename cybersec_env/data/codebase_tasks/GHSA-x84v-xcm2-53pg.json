@@ -159,5 +159,127 @@
   ],
   "python": "3.11",
   "n_before_pass": 117,
-  "n_after_pass": 121
+  "n_after_pass": 121,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-x84v-xcm2-53pg",
+      "summary": "Insufficiently Protected Credentials in Requests",
+      "details": "The Requests package through 2.19.1 before 2018-09-14 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+      "aliases": [
+        "CVE-2018-18074",
+        "PYSEC-2018-28"
+      ],
+      "published": "2018-10-29T19:06:46Z",
+      "modified": "2024-10-21T21:42:55.896669Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-522"
+      ],
+      "affected": [
+        {
+          "package": "requests",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.20.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2018-18074"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/requests/requests/issues/4716"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/requests/requests/pull/4718"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/requests/requests/commit/c45d7c49ea75133e52ab22a8e9e13173938e36ff"
+        },
+        {
+          "type": "WEB",
+          "url": "https://access.redhat.com/errata/RHSA-2019:2035"
+        },
+        {
+          "type": "WEB",
+          "url": "https://bugs.debian.org/910766"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/requests/PYSEC-2018-28.yaml"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/requests/requests"
+        },
+        {
+          "type": "WEB",
+          "url": "https://usn.ubuntu.com/3790-1"
+        },
+        {
+          "type": "WEB",
+          "url": "https://usn.ubuntu.com/3790-2"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.oracle.com/security-alerts/cpujul2022.html"
+        },
+        {
+          "type": "WEB",
+          "url": "http://docs.python-requests.org/en/master/community/updates/#release-and-version-history"
+        },
+        {
+          "type": "WEB",
+          "url": "http://lists.opensuse.org/opensuse-security-announce/2019-07/msg00024.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-x84v-xcm2-53pg",
+      "related_advisories": [
+        {
+          "id": "PYSEC-2018-28",
+          "summary": "",
+          "details": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+          "source": "https://api.osv.dev/v1/vulns/PYSEC-2018-28"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "c45d7c49ea75133e52ab22a8e9e13173938e36ff",
+      "authored_at": "2018-09-14T20:08:04+08:00",
+      "committed_at": "2018-09-14T20:08:04+08:00",
+      "message": "Merge pull request #4718 from bmerry/fix-4716\n\nStrip Authorization header whenever root URL changes",
+      "url": "https://github.com/requests/requests/commit/c45d7c49ea75133e52ab22a8e9e13173938e36ff"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 4718,
+        "url": "https://github.com/requests/requests/pull/4718",
+        "title": "Strip Authorization header whenever root URL changes",
+        "body": "Previously the header was stripped only if the hostname changed, but in\r\nan https -> http redirect that can leak the credentials on the wire\r\n(#4716). Based on with RFC 7235 section 2.2, the header is now stripped\r\nif the \"canonical root URL\" (scheme+authority) has changed.\r\n\r\nCloses #4716.",
+        "merged_at": "2018-09-14T12:08:05Z",
+        "merge_commit_sha": "c45d7c49ea75133e52ab22a8e9e13173938e36ff"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:40:19+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

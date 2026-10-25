@@ -1,0 +1,226 @@
+{
+  "id": "GHSA-22fp-mf44-f2mq",
+  "aliases": [],
+  "cwes": [
+    "CWE-434",
+    "CWE-669"
+  ],
+  "severity": "HIGH",
+  "package": "youtube-dl",
+  "repo": {
+    "owner": "ytdl-org",
+    "name": "youtube-dl",
+    "url": "https://github.com/ytdl-org/youtube-dl"
+  },
+  "base_commit": "072a43e0e328411a8ecca00c966105bc53503352",
+  "fix_commit": "d42a222ed541b96649396ef00e19552aef0f09ec",
+  "python_requires": "",
+  "changed_source_files": [
+    "youtube_dl/YoutubeDL.py",
+    "youtube_dl/utils.py"
+  ],
+  "changed_test_files": [
+    "test/test_utils.py"
+  ],
+  "source_patch": "diff --git a/youtube_dl/YoutubeDL.py b/youtube_dl/YoutubeDL.py\nindex dad4443..c195019 100755\n--- a/youtube_dl/YoutubeDL.py\n+++ b/youtube_dl/YoutubeDL.py\n@@ -7,6 +7,7 @@ import collections\n import copy\n import datetime\n import errno\n+import functools\n import io\n import itertools\n import json\n@@ -53,6 +54,7 @@ from .compat import (\n     compat_urllib_request_DataHandler,\n )\n from .utils import (\n+    _UnsafeExtensionError,\n     age_restricted,\n     args_to_str,\n     bug_reports_message,\n@@ -129,6 +131,20 @@ if compat_os_name == 'nt':\n     import ctypes\n \n \n+def _catch_unsafe_file_extension(func):\n+    @functools.wraps(func)\n+    def wrapper(self, *args, **kwargs):\n+        try:\n+            return func(self, *args, **kwargs)\n+        except _UnsafeExtensionError as error:\n+            self.report_error(\n+                '{0} found; to avoid damaging your system, this value is disallowed.'\n+                ' If you believe this is an error{1}').format(\n+                    error.message, bug_reports_message(','))\n+\n+    return wrapper\n+\n+\n class YoutubeDL(object):\n     \"\"\"YoutubeDL class.\n \n@@ -1925,6 +1941,7 @@ class YoutubeDL(object):\n         if self.params.get('forcejson', False):\n             self.to_stdout(json.dumps(self.sanitize_info(info_dict)))\n \n+    @_catch_unsafe_file_extension\n     def process_info(self, info_dict):\n         \"\"\"Process a single resolved IE result.\"\"\"\n \ndiff --git a/youtube_dl/utils.py b/youtube_dl/utils.py\nindex 1af3e2b..df203b9 100644\n--- a/youtube_dl/utils.py\n+++ b/youtube_dl/utils.py\n@@ -1717,39 +1717,6 @@ TIMEZONE_NAMES = {\n     'PST': -8, 'PDT': -7   # Pacific\n }\n \n-\n-class Namespace(object):\n-    \"\"\"Immutable namespace\"\"\"\n-\n-    def __init__(self, **kw_attr):\n-        self.__dict__.update(kw_attr)\n-\n-    def __iter__(self):\n-        return iter(self.__dict__.values())\n-\n-    @property\n-    def items_(self):\n-        return self.__dict__.items()\n-\n-\n-MEDIA_EXTENSIONS = Namespace(\n-    common_video=('avi', 'flv', 'mkv', 'mov', 'mp4', 'webm'),\n-    video=('3g2', '3gp', 'f4v', 'mk3d', 'divx', 'mpg', 'ogv', 'm4v', 'wmv'),\n-    common_audio=('aiff', 'alac', 'flac', 'm4a', 'mka', 'mp3', 'ogg', 'opus', 'wav'),\n-    audio=('aac', 'ape', 'asf', 'f4a', 'f4b', 'm4b', 'm4p', 'm4r', 'oga', 'ogx', 'spx', 'vorbis', 'wma', 'weba'),\n-    thumbnails=('jpg', 'png', 'webp'),\n-    # storyboards=('mhtml', ),\n-    subtitles=('srt', 'vtt', 'ass', 'lrc', 'ttml'),\n-    manifests=('f4f', 'f4m', 'm3u8', 'smil', 'mpd'),\n-)\n-MEDIA_EXTENSIONS.video = MEDIA_EXTENSIONS.common_video + MEDIA_EXTENSIONS.video\n-MEDIA_EXTENSIONS.audio = MEDIA_EXTENSIONS.common_audio + MEDIA_EXTENSIONS.audio\n-\n-KNOWN_EXTENSIONS = (\n-    MEDIA_EXTENSIONS.video + MEDIA_EXTENSIONS.audio\n-    + MEDIA_EXTENSIONS.manifests\n-)\n-\n # needed for sanitizing filenames in restricted mode\n ACCENT_CHARS = dict(zip('ÂÃÄÀÁÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖŐØŒÙÚÛÜŰÝÞßàáâãäåæçèéêëìíîïðñòóôõöőøœùúûüűýþÿ',\n                         itertools.chain('AAAAAA', ['AE'], 'CEEEEIIIIDNOOOOOOO', ['OE'], 'UUUUUY', ['TH', 'ss'],\n@@ -3977,19 +3944,22 @@ def parse_duration(s):\n     return duration\n \n \n-def prepend_extension(filename, ext, expected_real_ext=None):\n+def _change_extension(prepend, filename, ext, expected_real_ext=None):\n     name, real_ext = os.path.splitext(filename)\n-    return (\n-        '{0}.{1}{2}'.format(name, ext, real_ext)\n-        if not expected_real_ext or real_ext[1:] == expected_real_ext\n-        else '{0}.{1}'.format(filename, ext))\n+    sanitize_extension = _UnsafeExtensionError.sanitize_extension\n \n+    if not expected_real_ext or real_ext.partition('.')[0::2] == ('', expected_real_ext):\n+        filename = name\n+        if prepend and real_ext:\n+            sanitize_extension(ext, prepend=prepend)\n+            return ''.join((filename, '.', ext, real_ext))\n \n-def replace_extension(filename, ext, expected_real_ext=None):\n-    name, real_ext = os.path.splitext(filename)\n-    return '{0}.{1}'.format(\n-        name if not expected_real_ext or real_ext[1:] == expected_real_ext else filename,\n-        ext)\n+    # Mitigate path traversal and file impersonation attacks\n+    return '.'.join((filename, sanitize_extension(ext)))\n+\n+\n+prepend_extension = functools.partial(_change_extension, True)\n+replace_extension = functools.partial(_change_extension, False)\n \n \n def check_executable(exe, args=[]):\n@@ -6579,3 +6549,136 @@ def join_nonempty(*values, **kwargs):\n     if from_dict is not None:\n         values = (traverse_obj(from_dict, variadic(v)) for v in values)\n     return delim.join(map(compat_str, filter(None, values)))\n+\n+\n+class Namespace(object):\n+    \"\"\"Immutable namespace\"\"\"\n+\n+    def __init__(self, **kw_attr):\n+        self.__dict__.update(kw_attr)\n+\n+    def __iter__(self):\n+        return iter(self.__dict__.values())\n+\n+    @property\n+    def items_(self):\n+        return self.__dict__.items()\n+\n+\n+MEDIA_EXTENSIONS = Namespace(\n+    common_video=('avi', 'flv', 'mkv', 'mov', 'mp4', 'webm'),\n+    video=('3g2', '3gp', 'f4v', 'mk3d', 'divx', 'mpg', 'ogv', 'm4v', 'wmv'),\n+    common_audio=('aiff', 'alac', 'flac', 'm4a', 'mka', 'mp3', 'ogg', 'opus', 'wav'),\n+    audio=('aac', 'ape', 'asf', 'f4a', 'f4b', 'm4b', 'm4p', 'm4r', 'oga', 'ogx', 'spx', 'vorbis', 'wma', 'weba'),\n+    thumbnails=('jpg', 'png', 'webp'),\n+    # storyboards=('mhtml', ),\n+    subtitles=('srt', 'vtt', 'ass', 'lrc', 'ttml'),\n+    manifests=('f4f', 'f4m', 'm3u8', 'smil', 'mpd'),\n+)\n+MEDIA_EXTENSIONS.video = MEDIA_EXTENSIONS.common_video + MEDIA_EXTENSIONS.video\n+MEDIA_EXTENSIONS.audio = MEDIA_EXTENSIONS.common_audio + MEDIA_EXTENSIONS.audio\n+\n+KNOWN_EXTENSIONS = (\n+    MEDIA_EXTENSIONS.video + MEDIA_EXTENSIONS.audio\n+    + MEDIA_EXTENSIONS.manifests\n+)\n+\n+\n+class _UnsafeExtensionError(Exception):\n+    \"\"\"\n+    Mitigation exception for unwanted file overwrite/path traversal\n+    This should be caught in YoutubeDL.py with a warning\n+\n+    Ref: https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-79w7-vh3h-8g4j\n+    \"\"\"\n+    _ALLOWED_EXTENSIONS = frozenset(itertools.chain(\n+        (   # internal\n+            'description',\n+            'json',\n+            'meta',\n+            'orig',\n+            'part',\n+            'temp',\n+            'uncut',\n+            'unknown_video',\n+            'ytdl',\n+        ),\n+        # video\n+        MEDIA_EXTENSIONS.video, (\n+            'avif',\n+            'ismv',\n+            'm2ts',\n+            'm4s',\n+            'mng',\n+            'mpeg',\n+            'qt',\n+            'swf',\n+            'ts',\n+            'vp9',\n+            'wvm',\n+        ),\n+        # audio\n+        MEDIA_EXTENSIONS.audio, (\n+            'isma',\n+            'mid',\n+            'mpga',\n+            'ra',\n+        ),\n+        # image\n+        MEDIA_EXTENSIONS.thumbnails, (\n+            'bmp',\n+            'gif',\n+            'ico',\n+            'heic',\n+            'jng',\n+            'jpeg',\n+            'jxl',\n+            'svg',\n+            'tif',\n+            'wbmp',\n+        ),\n+        # subtitle\n+        MEDIA_EXTENSIONS.subtitles, (\n+            'dfxp',\n+            'fs',\n+            'ismt',\n+            'sami',\n+            'scc',\n+            'ssa',\n+            'tt',\n+        ),\n+        # others\n+        MEDIA_EXTENSIONS.manifests,\n+        (\n+            # not used in yt-dl\n+            # *MEDIA_EXTENSIONS.storyboards,\n+            # 'desktop',\n+            # 'ism',\n+            # 'm3u',\n+            # 'sbv',\n+            # 'swp',\n+            # 'url',\n+            # 'webloc',\n+            # 'xml',\n+        )))\n+\n+    def __init__(self, extension):\n+        super(_UnsafeExtensionError, self).__init__('unsafe file extension: {0!r}'.format(extension))\n+        self.extension = extension\n+\n+    @classmethod\n+    def sanitize_extension(cls, extension, **kwargs):\n+        # ... /, *, prepend=False\n+        prepend = kwargs.get('prepend', False)\n+\n+        if '/' in extension or '\\\\' in extension:\n+            raise cls(extension)\n+\n+        if not prepend:\n+            last = extension.rpartition('.')[-1]\n+            if last == 'bin':\n+                extension = last = 'unknown_video'\n+            if last.lower() not in cls._ALLOWED_EXTENSIONS:\n+                raise cls(extension)\n+\n+        return extension\n",
+  "test_patch": "diff --git a/test/test_utils.py b/test/test_utils.py\nindex de7fe80..2947cce 100644\n--- a/test/test_utils.py\n+++ b/test/test_utils.py\n@@ -14,9 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n import io\n import itertools\n import json\n+import types\n import xml.etree.ElementTree\n \n from youtube_dl.utils import (\n+    _UnsafeExtensionError,\n     age_restricted,\n     args_to_str,\n     base_url,\n@@ -270,6 +272,27 @@ class TestUtil(unittest.TestCase):\n             expand_path('~/%s' % env('YOUTUBE_DL_EXPATH_PATH')),\n             '%s/expanded' % compat_getenv('HOME'))\n \n+    _uncommon_extensions = [\n+        ('exe', 'abc.exe.ext'),\n+        ('de', 'abc.de.ext'),\n+        ('../.mp4', None),\n+        ('..\\\\.mp4', None),\n+    ]\n+\n+    def assertUnsafeExtension(self, ext=None):\n+        assert_raises = self.assertRaises(_UnsafeExtensionError)\n+        assert_raises.ext = ext\n+        orig_exit = assert_raises.__exit__\n+\n+        def my_exit(self_, exc_type, exc_val, exc_tb):\n+            did_raise = orig_exit(exc_type, exc_val, exc_tb)\n+            if did_raise and assert_raises.ext is not None:\n+                self.assertEqual(assert_raises.ext, assert_raises.exception.extension, 'Unsafe extension  not as unexpected')\n+            return did_raise\n+\n+        assert_raises.__exit__ = types.MethodType(my_exit, assert_raises)\n+        return assert_raises\n+\n     def test_prepend_extension(self):\n         self.assertEqual(prepend_extension('abc.ext', 'temp'), 'abc.temp.ext')\n         self.assertEqual(prepend_extension('abc.ext', 'temp', 'ext'), 'abc.temp.ext')\n@@ -278,6 +301,19 @@ class TestUtil(unittest.TestCase):\n         self.assertEqual(prepend_extension('.abc', 'temp'), '.abc.temp')\n         self.assertEqual(prepend_extension('.abc.ext', 'temp'), '.abc.temp.ext')\n \n+        # Test uncommon extensions\n+        self.assertEqual(prepend_extension('abc.ext', 'bin'), 'abc.bin.ext')\n+        for ext, result in self._uncommon_extensions:\n+            with self.assertUnsafeExtension(ext):\n+                prepend_extension('abc', ext)\n+            if result:\n+                self.assertEqual(prepend_extension('abc.ext', ext, 'ext'), result)\n+            else:\n+                with self.assertUnsafeExtension(ext):\n+                    prepend_extension('abc.ext', ext, 'ext')\n+            with self.assertUnsafeExtension(ext):\n+                prepend_extension('abc.unexpected_ext', ext, 'ext')\n+\n     def test_replace_extension(self):\n         self.assertEqual(replace_extension('abc.ext', 'temp'), 'abc.temp')\n         self.assertEqual(replace_extension('abc.ext', 'temp', 'ext'), 'abc.temp')\n@@ -286,6 +322,16 @@ class TestUtil(unittest.TestCase):\n         self.assertEqual(replace_extension('.abc', 'temp'), '.abc.temp')\n         self.assertEqual(replace_extension('.abc.ext', 'temp'), '.abc.temp')\n \n+        # Test uncommon extensions\n+        self.assertEqual(replace_extension('abc.ext', 'bin'), 'abc.unknown_video')\n+        for ext, _ in self._uncommon_extensions:\n+            with self.assertUnsafeExtension(ext):\n+                replace_extension('abc', ext)\n+            with self.assertUnsafeExtension(ext):\n+                replace_extension('abc.ext', ext, 'ext')\n+            with self.assertUnsafeExtension(ext):\n+                replace_extension('abc.unexpected_ext', ext, 'ext')\n+\n     def test_subtitles_filename(self):\n         self.assertEqual(subtitles_filename('abc.ext', 'en', 'vtt'), 'abc.en.vtt')\n         self.assertEqual(subtitles_filename('abc.ext', 'en', 'vtt', 'ext'), 'abc.en.vtt')\n",
+  "summary": "youtube-dl vulnerable to file system modification and RCE through improper file-extension sanitization",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `youtube-dl` has a security vulnerability (CWE-434, CWE-669). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "test.test_utils.TestUtil::test_LazyList",
+    "test.test_utils.TestUtil::test_LazyList_laziness",
+    "test.test_utils.TestUtil::test_age_restricted",
+    "test.test_utils.TestUtil::test_args_to_str",
+    "test.test_utils.TestUtil::test_base_url",
+    "test.test_utils.TestUtil::test_caesar",
+    "test.test_utils.TestUtil::test_clean_html",
+    "test.test_utils.TestUtil::test_clean_podcast_url",
+    "test.test_utils.TestUtil::test_cli_bool_option",
+    "test.test_utils.TestUtil::test_cli_option",
+    "test.test_utils.TestUtil::test_cli_valueless_option",
+    "test.test_utils.TestUtil::test_date_from_str",
+    "test.test_utils.TestUtil::test_daterange",
+    "test.test_utils.TestUtil::test_detect_exe_version",
+    "test.test_utils.TestUtil::test_determine_ext",
+    "test.test_utils.TestUtil::test_dfxp2srt",
+    "test.test_utils.TestUtil::test_encode_base_n",
+    "test.test_utils.TestUtil::test_encode_compat_str",
+    "test.test_utils.TestUtil::test_escape_rfc3986",
+    "test.test_utils.TestUtil::test_escape_url",
+    "test.test_utils.TestUtil::test_expand_path",
+    "test.test_utils.TestUtil::test_extract_attributes",
+    "test.test_utils.TestUtil::test_find_xpath_attr",
+    "test.test_utils.TestUtil::test_fix_xml_ampersands",
+    "test.test_utils.TestUtil::test_float_or_none",
+    "test.test_utils.TestUtil::test_get_element_by_attribute",
+    "test.test_utils.TestUtil::test_get_element_by_class",
+    "test.test_utils.TestUtil::test_get_elements_by_attribute",
+    "test.test_utils.TestUtil::test_get_elements_by_class",
+    "test.test_utils.TestUtil::test_int_or_none",
+    "test.test_utils.TestUtil::test_intlist_to_bytes",
+    "test.test_utils.TestUtil::test_is_html",
+    "test.test_utils.TestUtil::test_join_nonempty",
+    "test.test_utils.TestUtil::test_js_to_json_edgecases",
+    "test.test_utils.TestUtil::test_js_to_json_malformed",
+    "test.test_utils.TestUtil::test_js_to_json_realworld",
+    "test.test_utils.TestUtil::test_js_to_json_template_literal",
+    "test.test_utils.TestUtil::test_js_to_json_vars_strings",
+    "test.test_utils.TestUtil::test_limit_length",
+    "test.test_utils.TestUtil::test_lowercase_escape",
+    "test.test_utils.TestUtil::test_match_str",
+    "test.test_utils.TestUtil::test_merge_dicts",
+    "test.test_utils.TestUtil::test_mimetype2ext",
+    "test.test_utils.TestUtil::test_month_by_name",
+    "test.test_utils.TestUtil::test_multipart_encode",
+    "test.test_utils.TestUtil::test_ohdave_rsa_encrypt",
+    "test.test_utils.TestUtil::test_ordered_set",
+    "test.test_utils.TestUtil::test_paged_list",
+    "test.test_utils.TestUtil::test_parse_age_limit",
+    "test.test_utils.TestUtil::test_parse_bitrate",
+    "test.test_utils.TestUtil::test_parse_codecs",
+    "test.test_utils.TestUtil::test_parse_count",
+    "test.test_utils.TestUtil::test_parse_dfxp_time_expr",
+    "test.test_utils.TestUtil::test_parse_duration",
+    "test.test_utils.TestUtil::test_parse_filesize",
+    "test.test_utils.TestUtil::test_parse_iso8601",
+    "test.test_utils.TestUtil::test_parse_resolution",
+    "test.test_utils.TestUtil::test_pkcs1pad",
+    "test.test_utils.TestUtil::test_prepend_extension",
+    "test.test_utils.TestUtil::test_read_batch_urls",
+    "test.test_utils.TestUtil::test_remove_dot_segments",
+    "test.test_utils.TestUtil::test_remove_end",
+    "test.test_utils.TestUtil::test_remove_quotes",
+    "test.test_utils.TestUtil::test_remove_start",
+    "test.test_utils.TestUtil::test_render_table",
+    "test.test_utils.TestUtil::test_replace_extension",
+    "test.test_utils.TestUtil::test_rot47",
+    "test.test_utils.TestUtil::test_sanitize_filename",
+    "test.test_utils.TestUtil::test_sanitize_filename_restricted",
+    "test.test_utils.TestUtil::test_sanitize_ids",
+    "test.test_utils.TestUtil::test_sanitize_path",
+    "test.test_utils.TestUtil::test_sanitize_url",
+    "test.test_utils.TestUtil::test_sanitized_Request",
+    "test.test_utils.TestUtil::test_shell_quote",
+    "test.test_utils.TestUtil::test_smuggle_url",
+    "test.test_utils.TestUtil::test_str_to_int",
+    "test.test_utils.TestUtil::test_strip_jsonp",
+    "test.test_utils.TestUtil::test_strip_or_none",
+    "test.test_utils.TestUtil::test_subtitles_filename",
+    "test.test_utils.TestUtil::test_timeconvert",
+    "test.test_utils.TestUtil::test_try_call",
+    "test.test_utils.TestUtil::test_unescape_html",
+    "test.test_utils.TestUtil::test_unified_dates",
+    "test.test_utils.TestUtil::test_unified_timestamps",
+    "test.test_utils.TestUtil::test_update_url_query",
+    "test.test_utils.TestUtil::test_uppercase_escape",
+    "test.test_utils.TestUtil::test_url_basename",
+    "test.test_utils.TestUtil::test_url_or_none",
+    "test.test_utils.TestUtil::test_urlencode_postdata",
+    "test.test_utils.TestUtil::test_urljoin",
+    "test.test_utils.TestUtil::test_urshift",
+    "test.test_utils.TestUtil::test_variadic",
+    "test.test_utils.TestUtil::test_version_tuple",
+    "test.test_utils.TestUtil::test_xpath_attr",
+    "test.test_utils.TestUtil::test_xpath_element",
+    "test.test_utils.TestUtil::test_xpath_text",
+    "test.test_utils.TestUtil::test_xpath_with_ns"
+  ],
+  "p2p_tests": [],
+  "test_files": [
+    "test/test_utils.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 0,
+  "n_after_pass": 97,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-22fp-mf44-f2mq",
+      "summary": "youtube-dl vulnerable to file system modification and RCE through improper file-extension sanitization",
+      "details": "#### Description\nThis advisory follows the security advisory [GHSA-79w7-vh3h-8g4j published by the _yt-dlp/yt-dlp_ project](https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-79w7-vh3h-8g4j) to aid remediation of the issue in the _ytdl-org/youtube-dl_ project.\n\n### Vulnerability\n_youtube-dl_ does not limit the extensions of downloaded files, which could lead to arbitrary filenames being created in the download folder (and path traversal on Windows). \n\n### Impact\nSince _youtube-dl_ also reads config from the working directory (and, on Windows, executables will be executed from the _youtube-dl_ directory by default) the vulnerability could allow the unwanted execution of local code, including downloads masquerading as, eg, subtitles.\n\n### Patches\nThe versions of _youtube-dl_ listed as _Patched_ remediate this vulnerability by disallowing path separators and whitelisting allowed extensions. As a result, some very uncommon extensions might not get downloaded.\n\n**Master code d42a222 or later and nightly builds tagged 2024-07-03 or later** contain the remediation.\n\n### Workarounds\nAny/all of the below considerations may limit exposure in case it is necessary to use a vulnerable version\n* have `.%(ext)s` at the end of the output template\n* download from websites that you trust\n* do not download to a directory within the executable search `PATH` or other sensitive locations, such as your user directory or system directories\n* in Windows versions that support it, set [`NoDefaultCurrentDirectoryInExePath`](https://stackoverflow.com/a/50118548) to prevent the _cmd_ shell's executable search adding the default directory before `PATH`\n* consider that the path traversal vulnerability as a result of resolving `non_existent_dir\\..\\..\\target` does not exist in Linux or macOS\n* ensure the extension of the media to download is a common video/audio/... one (use `--get-filename`)\n* omit any of the subtitle options (`--write-subs`/` --write-srt`, `--write-auto-subs`/`--write-automatic-subs`, `--all-subs`).\n\n### References\n* [GHSA-79w7-vh3h-8g4j](https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-79w7-vh3h-8g4j)\n* https://github.com/ytdl-org/youtube-dl/pull/32830",
+      "aliases": [],
+      "published": "2025-04-18T20:24:07Z",
+      "modified": "2026-02-04T02:44:06.010018Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-434",
+        "CWE-669"
+      ],
+      "affected": [
+        {
+          "package": "youtube-dl",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2015.01.25"
+                },
+                {
+                  "last_affected": "2021.12.17"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/dirkf/youtube-dl/security/advisories/GHSA-22fp-mf44-f2mq"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-79w7-vh3h-8g4j"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-38519"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/ytdl-org/youtube-dl/pull/32830"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/ytdl-org/youtube-dl/commit/d42a222ed541b96649396ef00e19552aef0f09ec"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/dirkf/youtube-dl"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://securitylab.github.com/advisories/GHSL-2024-089_youtube-dl"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-22fp-mf44-f2mq",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "d42a222ed541b96649396ef00e19552aef0f09ec",
+      "authored_at": "2024-06-30T18:37:25+01:00",
+      "committed_at": "2024-07-01T14:39:24+01:00",
+      "message": "[core,utils] Implement unsafe file extension mitigation\n* from https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-79w7-vh3h-8g4, thx grub4k",
+      "url": "https://github.com/ytdl-org/youtube-dl/commit/d42a222ed541b96649396ef00e19552aef0f09ec"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 32830,
+        "url": "https://github.com/ytdl-org/youtube-dl/pull/32830",
+        "title": "[core] Validate proposed file extensions",
+        "body": "<details><summary>Boilerplate: yt-dlp/own code, fix</summary>\r\n## Please follow the guide below\r\n\r\n- You will be asked some questions, please read them **carefully** and answer honestly\r\n- Put an `x` into all the boxes [ ] relevant to your *pull request* (like that [x])\r\n- Use *Preview* tab to see how your *pull request* will actually look like\r\n\r\n---\r\n\r\n### Before submitting a *pull request* make sure you have:\r\n- [x] [Searched](https://github.com/ytdl-org/youtube-dl/search?q=is%3Apr&type=Issues) the bugtracker for similar pull requests\r\n- [x] Read [adding new extractor tutorial](https://github.com/ytdl-org/youtube-dl#adding-support-for-a-new-site)\r\n- [x] Read [youtube-dl coding conventions](https://github.com/ytdl-org/youtube-dl#youtube-dl-coding-conventions) and adjusted the code to meet them\r\n- [x] Covered the code with tests (note that PRs without tests will be REJECTED)\r\n- [x] Checked the code with [flake8](https://pypi.python.org/pypi/flake8)\r\n\r\n### In order to be accepted and merged into youtube-dl each piece of code must be in public domain or released under [Unlicense](http://unlicense.org/). Check one of the following options:\r\n- [x] I am the original author of this code and I am willing to release it under [Unlicense](http://unlicense.org/), except for code from yt-dlp for which this or the below has already been asserted\r\n- [ ] I am not the original author of this code but it is in public domain or released under [Unlicense](http://unlicense.org/) (provide reliable evidence)\r\n\r\n### What is the purpose of your *pull request*?\r\n- [x] Bug fix\r\n- [ ] Improvement\r\n- [ ] New extractor\r\n- [ ] New feature\r\n\r\n</details>\r\n\r\n---\r\n\r\n### Description of your *pull request* and other information\r\n\r\nThis PR adds validation of file extensions processed by yt-dl\r\n1. against a white-list of expected extensions (unpublicised `--no-check-extensions` disables this, CLI only) \r\n2. to exclude path separators in a site-supplied extension that could enable path traversal under vulnerable OSes (Windows, eg).\r\n\r\nThe PR is derived from https://github.com/yt-dlp/yt-dlp-ghsa-79w7-vh3h-8g4j/pull/1.\r\n\r\nThanks:\r\n* @grub4k for the PR\r\n* @pukkandan for the original report\r\n* @jarlob for a further report and for additional testing.",
+        "merged_at": "2024-07-02T14:38:50Z",
+        "merge_commit_sha": "37cea84f775129ad715b9bcd617251c831fcc980"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:13:56+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

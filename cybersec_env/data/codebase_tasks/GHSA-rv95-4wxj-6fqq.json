@@ -23,7 +23,7 @@
   "changed_test_files": [
     "colander/tests/test_colander.py"
   ],
-  "source_patch": "diff --git a/colander/__init__.py b/colander/__init__.py\nindex 6f0dff5..6eac447 100644\n--- a/colander/__init__.py\n+++ b/colander/__init__.py\n@@ -607,14 +607,40 @@ def _luhnok(value):\n     return checksum\n \n \n+# Gingerly lifted from Django 1.3.x:\n+# https://github.com/django/django/blob/stable/1.3.x/django/core/validators.py#L45\n+# <3 y'all!\n URL_REGEX = (\n-    r'(?i)\\b((?:[a-z][\\w-]+:(?:/{1,3}|[a-z0-9%])|www\\d{0,3}[.]|'\n-    r'[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|'\n-    r'(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|'\n-    r'[^\\s`!()\\[\\]{};:\\'\".,<>?\u00ab\u00bb\u201c\u201d\u2018\u2019]))'  # \"emacs!\n+    # {http,ftp}s:// (not required)\n+    r'^((?:http|ftp)s?://)?'\n+    # Domain\n+    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\\.)+'\n+    r'(?:[A-Z]{2,6}\\.?|[A-Z0-9-]{2,}\\.?)|'\n+    # Localhost\n+    r'localhost|'\n+    # IPv6 address\n+    r'\\[[a-f0-9:]+\\]|'\n+    # IPv4 address\n+    r'\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})'\n+    # Optional port\n+    r'(?::\\d+)?'\n+    # Path\n+    r'(?:/?|[/?]\\S+)$'\n )\n \n-url = Regex(URL_REGEX, _('Must be a URL'))\n+url = Regex(URL_REGEX, msg=_('Must be a URL'), flags=re.IGNORECASE)\n+\n+\n+URI_REGEX = (\n+    # file:// (required)\n+    r'^file://'\n+    # Path\n+    r'(?:/|[/?]\\S+)$'\n+)\n+\n+file_uri = Regex(\n+    URI_REGEX, msg=_('Must be a file:// URI scheme'), flags=re.IGNORECASE\n+)\n \n UUID_REGEX = (\n     r'^(?:urn:uuid:)?\\{?[a-f0-9]{8}(?:-?[a-f0-9]{4}){3}-?[a-f0-9]{12}\\}?$'\n",
+  "source_patch": "diff --git a/colander/__init__.py b/colander/__init__.py\nindex 6f0dff5..6eac447 100644\n--- a/colander/__init__.py\n+++ b/colander/__init__.py\n@@ -607,14 +607,40 @@ def _luhnok(value):\n     return checksum\n \n \n+# Gingerly lifted from Django 1.3.x:\n+# https://github.com/django/django/blob/stable/1.3.x/django/core/validators.py#L45\n+# <3 y'all!\n URL_REGEX = (\n-    r'(?i)\\b((?:[a-z][\\w-]+:(?:/{1,3}|[a-z0-9%])|www\\d{0,3}[.]|'\n-    r'[a-z0-9.\\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|'\n-    r'(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|'\n-    r'[^\\s`!()\\[\\]{};:\\'\".,<>?«»“”‘’]))'  # \"emacs!\n+    # {http,ftp}s:// (not required)\n+    r'^((?:http|ftp)s?://)?'\n+    # Domain\n+    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\\.)+'\n+    r'(?:[A-Z]{2,6}\\.?|[A-Z0-9-]{2,}\\.?)|'\n+    # Localhost\n+    r'localhost|'\n+    # IPv6 address\n+    r'\\[[a-f0-9:]+\\]|'\n+    # IPv4 address\n+    r'\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})'\n+    # Optional port\n+    r'(?::\\d+)?'\n+    # Path\n+    r'(?:/?|[/?]\\S+)$'\n )\n \n-url = Regex(URL_REGEX, _('Must be a URL'))\n+url = Regex(URL_REGEX, msg=_('Must be a URL'), flags=re.IGNORECASE)\n+\n+\n+URI_REGEX = (\n+    # file:// (required)\n+    r'^file://'\n+    # Path\n+    r'(?:/|[/?]\\S+)$'\n+)\n+\n+file_uri = Regex(\n+    URI_REGEX, msg=_('Must be a file:// URI scheme'), flags=re.IGNORECASE\n+)\n \n UUID_REGEX = (\n     r'^(?:urn:uuid:)?\\{?[a-f0-9]{8}(?:-?[a-f0-9]{4}){3}-?[a-f0-9]{12}\\}?$'\n",
   "test_patch": "diff --git a/colander/tests/test_colander.py b/colander/tests/test_colander.py\nindex 917a719..5411c2b 100644\n--- a/colander/tests/test_colander.py\n+++ b/colander/tests/test_colander.py\n@@ -646,6 +646,76 @@ class Test_url_validator(unittest.TestCase):\n \n         self.assertRaises(Invalid, self._callFUT, val)\n \n+    def test_add_sample_dos(self):\n+        # In the old regex (colander <=1.6) this would cause a catastrophic\n+        # backtracking that would cause the regex engine to go into an infinite\n+        # loop.\n+        val = \"http://www.mysite.com/(tttttttttttttttttttttt.jpg\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_website_no_scheme(self):\n+        val = \"www.mysite.com\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_ipv6(self):\n+        val = \"http://[2001:db8::0]/\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_ipv4(self):\n+        val = \"http://192.0.2.1/\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_file_raises(self):\n+        from colander import Invalid\n+\n+        val = \"file:///this/is/a/file.jpg\"\n+\n+        self.assertRaises(Invalid, self._callFUT, val)\n+\n+\n+class Test_file_uri_validator(unittest.TestCase):\n+    def _callFUT(self, val):\n+        from colander import file_uri\n+\n+        return file_uri(None, val)\n+\n+    def test_it_success(self):\n+        val = 'file:///'\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_it_failure(self):\n+        val = 'not-a-uri'\n+        from colander import Invalid\n+\n+        self.assertRaises(Invalid, self._callFUT, val)\n+\n+    def test_no_path_fails(self):\n+        val = 'file://'\n+        from colander import Invalid\n+\n+        self.assertRaises(Invalid, self._callFUT, val)\n+\n+    def test_file_with_path(self):\n+        val = \"file:///this/is/a/file.jpg\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n+    def test_file_with_path_windows(self):\n+        val = \"file:///c:/is/a/file.jpg\"\n+\n+        result = self._callFUT(val)\n+        self.assertEqual(result, None)\n+\n \n class TestUUID(unittest.TestCase):\n     def _callFUT(self, val):\n",
   "summary": "Pylons Colander Denial of Service vulnerability",
   "era": "legacy",
@@ -511,5 +511,96 @@
   ],
   "python": "3.11",
   "n_before_pass": 467,
-  "n_after_pass": 473
+  "n_after_pass": 473,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-rv95-4wxj-6fqq",
+      "summary": "Pylons Colander Denial of Service vulnerability",
+      "details": "In Pylons Colander through 1.6, the URL validator allows an attacker to potentially cause an infinite loop thereby causing a denial of service via an unclosed parenthesis.",
+      "aliases": [
+        "CVE-2017-18361",
+        "PYSEC-2019-167"
+      ],
+      "published": "2019-02-07T18:18:22Z",
+      "modified": "2024-09-13T14:52:18.735323Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-835"
+      ],
+      "affected": [
+        {
+          "package": "colander",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.7.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2017-18361"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/colander/issues/290"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/colander/pull/323"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/colander/commit/98805557c10ab5ff3016ed09aa2d48c49b9df40b"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/Pylons/colander"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-rv95-4wxj-6fqq"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/colander/PYSEC-2019-167.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-rv95-4wxj-6fqq",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "98805557c10ab5ff3016ed09aa2d48c49b9df40b",
+      "authored_at": "2019-02-01T12:04:32-06:00",
+      "committed_at": "2019-02-01T12:04:32-06:00",
+      "message": "Merge pull request #323 from Pylons/fix/url-validator-dos\n\nFix: url validator",
+      "url": "https://github.com/Pylons/colander/commit/98805557c10ab5ff3016ed09aa2d48c49b9df40b"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 323,
+        "url": "https://github.com/Pylons/colander/pull/323",
+        "title": "Fix: url validator",
+        "body": "This fixes the URL validator issue reported in #290.\r\n\r\nAs a side note, this can lead to anyone using this validator and for example deform to be vulnerable to a Denial of Service, since it basically sends Python into an infinite loop. We should back port as necessary, and or notify this as a security issue. \r\n\r\nCloses #290",
+        "merged_at": "2019-02-01T18:04:33Z",
+        "merge_commit_sha": "98805557c10ab5ff3016ed09aa2d48c49b9df40b"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:57+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

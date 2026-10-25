@@ -51,11 +51,24 @@ def verify_and_save(spec: dict, grader: CodebaseGrader) -> dict:
             "python": grader._py(spec),
             "n_before_pass": v.get("n_before_pass"),
             "n_after_pass": v.get("n_after_pass"),
+            "stability": v.get("stability"),
+            "pip_freeze": v.get("pip_freeze"),
         })
         for d in (VERIFIED, TRACKED):
             d.mkdir(parents=True, exist_ok=True)
-            (d / f"{_safe(spec['id'])}.json").write_text(
-                json.dumps(spec, indent=2), encoding="utf-8")
+            path = d / f"{_safe(spec['id'])}.json"
+            # Re-verifying must not drop fields other tools added (e.g. the
+            # human-written ``reference`` from enrich_codebase_tasks.py).
+            if path.exists():
+                try:
+                    old = json.loads(path.read_text(encoding="utf-8"))
+                    for k in ("reference",):
+                        if k in old and k not in spec:
+                            spec[k] = old[k]
+                except (json.JSONDecodeError, OSError):
+                    pass
+            path.write_text(json.dumps(spec, indent=2, ensure_ascii=False),
+                            encoding="utf-8", newline="\n")
     return v
 
 

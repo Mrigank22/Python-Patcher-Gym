@@ -1,0 +1,139 @@
+{
+  "id": "GHSA-43qf-4rqw-9q2g",
+  "aliases": [
+    "CVE-2024-6866",
+    "PYSEC-2026-1383"
+  ],
+  "cwes": [
+    "CWE-178"
+  ],
+  "severity": "MODERATE",
+  "package": "flask-cors",
+  "repo": {
+    "owner": "corydolphin",
+    "name": "flask-cors",
+    "url": "https://github.com/corydolphin/flask-cors"
+  },
+  "base_commit": "5da9be479b4fb203816bca9eb0cfb7add5eeceb5",
+  "fix_commit": "eb39516a3c96b90d0ae5f51293972395ec3ef358",
+  "python_requires": ">=3.9,<4.0",
+  "changed_source_files": [
+    "flask_cors/core.py",
+    "flask_cors/extension.py"
+  ],
+  "changed_test_files": [
+    "tests/core/helper_tests.py"
+  ],
+  "source_patch": "diff --git a/flask_cors/core.py b/flask_cors/core.py\nindex 0ad0d1d..18a51f3 100644\n--- a/flask_cors/core.py\n+++ b/flask_cors/core.py\n@@ -121,9 +121,10 @@ def get_cors_origins(options, request_origin):\n         if wildcard and options.get(\"send_wildcard\"):\n             LOG.debug(\"Allowed origins are set to '*'. Sending wildcard CORS header.\")\n             return [\"*\"]\n-        # If the value of the Origin header is a case-sensitive match\n-        # for any of the values in list of origins\n-        elif try_match_any(request_origin, origins):\n+        # If the value of the Origin header is a case-insensitive match\n+        # for any of the values in list of origins.\n+        # NOTE: Per RFC 1035 and RFC 4343 schemes and hostnames are case insensitive.\n+        elif try_match_any_pattern(request_origin, origins, caseSensitive=False):\n             LOG.debug(\n                 \"The request's Origin header matches. Sending CORS headers.\",\n             )\n@@ -164,7 +165,7 @@ def get_allow_headers(options, acl_request_headers):\n         request_headers = [h.strip() for h in acl_request_headers.split(\",\")]\n \n         # any header that matches in the allow_headers\n-        matching_headers = filter(lambda h: try_match_any(h, options.get(\"allow_headers\")), request_headers)\n+        matching_headers = filter(lambda h: try_match_any_pattern(h, options.get(\"allow_headers\"), caseSensitive=False), request_headers)\n \n         return \", \".join(sorted(matching_headers))\n \n@@ -277,22 +278,31 @@ def re_fix(reg):\n     return r\".*\" if reg == r\"*\" else reg\n \n \n-def try_match_any(inst, patterns):\n-    return any(try_match(inst, pattern) for pattern in patterns)\n+def try_match_any_pattern(inst, patterns, caseSensitive=True):\n+    return any(try_match_pattern(inst, pattern, caseSensitive) for pattern in patterns)\n \n-\n-def try_match(request_origin, maybe_regex):\n-    \"\"\"Safely attempts to match a pattern or string to a request origin.\"\"\"\n-    if isinstance(maybe_regex, RegexObject):\n-        return re.match(maybe_regex, request_origin)\n-    elif probably_regex(maybe_regex):\n-        return re.match(maybe_regex, request_origin, flags=re.IGNORECASE)\n-    else:\n+def try_match_pattern(value, pattern, caseSensitive=True):\n+    \"\"\"\n+    Safely attempts to match a pattern or string to a value. This\n+    function can be used to match request origins, headers, or paths.\n+    The value of caseSensitive should be set in accordance to the\n+    data being compared e.g. origins and headers are case insensitive\n+    whereas paths are case-sensitive\n+    \"\"\"\n+    if isinstance(pattern, RegexObject):\n+        return re.match(pattern, value)\n+    if probably_regex(pattern):\n+        flags = 0 if caseSensitive else re.IGNORECASE\n         try:\n-            return request_origin.lower() == maybe_regex.lower()\n-        except AttributeError:\n-            return request_origin == maybe_regex\n-\n+            return re.match(pattern, value, flags=flags)\n+        except re.error:\n+            return False\n+    try:\n+        v = str(value)\n+        p = str(pattern)\n+        return v == p if caseSensitive else v.casefold() == p.casefold()\n+    except Exception:\n+        return value == pattern\n \n def get_cors_options(appInstance, *dicts):\n     \"\"\"\ndiff --git a/flask_cors/extension.py b/flask_cors/extension.py\nindex 87e55b7..4591557 100644\n--- a/flask_cors/extension.py\n+++ b/flask_cors/extension.py\n@@ -3,7 +3,7 @@ from urllib.parse import unquote_plus\n \n from flask import request\n \n-from .core import ACL_ORIGIN, get_cors_options, get_regexp_pattern, parse_resources, set_cors_headers, try_match\n+from .core import ACL_ORIGIN, get_cors_options, get_regexp_pattern, parse_resources, set_cors_headers, try_match_pattern\n \n LOG = logging.getLogger(__name__)\n \n@@ -190,7 +190,7 @@ def make_after_request_function(resources):\n             return resp\n         normalized_path = unquote_plus(request.path)\n         for res_regex, res_options in resources:\n-            if try_match(normalized_path, res_regex):\n+            if try_match_pattern(normalized_path, res_regex, caseSensitive=True):\n                 LOG.debug(\n                     \"Request to '%r' matches CORS resource '%s'. Using options: %s\",\n                     request.path,\n",
+  "test_patch": "diff --git a/tests/core/helper_tests.py b/tests/core/helper_tests.py\nindex 44e5ad1..f5403af 100644\n--- a/tests/core/helper_tests.py\n+++ b/tests/core/helper_tests.py\n@@ -17,9 +17,12 @@ from flask_cors.core import *\n \n \n class InternalsTestCase(unittest.TestCase):\n-    def test_try_match(self):\n-        self.assertFalse(try_match('www.com/foo', 'www.com/fo'))\n-        self.assertTrue(try_match('www.com/foo', 'www.com/fo*'))\n+    def test_try_match_pattern(self):\n+        self.assertFalse(try_match_pattern('www.com/foo', 'www.com/fo', caseSensitive=True))\n+        self.assertTrue(try_match_pattern('www.com/foo', 'www.com/fo*', caseSensitive=True))\n+        self.assertTrue(try_match_pattern('www.com', 'WwW.CoM', caseSensitive=False))\n+        self.assertTrue(try_match_pattern('/foo', '/fo*', caseSensitive=True))\n+        self.assertFalse(try_match_pattern('/foo', '/Fo*', caseSensitive=True))\n \n     def test_flexible_str_str(self):\n         self.assertEqual(flexible_str('Bar, Foo, Qux'), 'Bar, Foo, Qux')\n",
+  "summary": "Flask-CORS vulnerable to Improper Handling of Case Sensitivity",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `flask-cors` has a security vulnerability (CWE-178). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.core.helper_tests.InternalsTestCase::test_try_match_pattern"
+  ],
+  "p2p_tests": [
+    "tests.core.helper_tests.InternalsTestCase::test_flexible_str_set",
+    "tests.core.helper_tests.InternalsTestCase::test_flexible_str_str",
+    "tests.core.helper_tests.InternalsTestCase::test_get_allow_headers_empty",
+    "tests.core.helper_tests.InternalsTestCase::test_get_allow_headers_matching",
+    "tests.core.helper_tests.InternalsTestCase::test_get_allow_headers_matching_none",
+    "tests.core.helper_tests.InternalsTestCase::test_parse_resources_sorted",
+    "tests.core.helper_tests.InternalsTestCase::test_probably_regex",
+    "tests.core.helper_tests.InternalsTestCase::test_serialize_options"
+  ],
+  "test_files": [
+    "tests/core/helper_tests.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 8,
+  "n_after_pass": 9,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-43qf-4rqw-9q2g",
+      "summary": "Flask-CORS vulnerable to Improper Handling of Case Sensitivity",
+      "details": "corydolphin/flask-cors version 5.0.1 contains a vulnerability where the request path matching is case-insensitive due to the use of the `try_match` function, which is originally intended for matching hosts. This results in a mismatch because paths in URLs are case-sensitive, but the regex matching treats them as case-insensitive. This misconfiguration can lead to significant security vulnerabilities, allowing unauthorized origins to access paths meant to be restricted, resulting in data exposure and potential data leaks.",
+      "aliases": [
+        "CVE-2024-6866",
+        "PYSEC-2026-1383"
+      ],
+      "published": "2025-03-20T12:32:45Z",
+      "modified": "2026-09-10T03:50:56.795708366Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-178"
+      ],
+      "affected": [
+        {
+          "package": "flask-cors",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.0.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-6866"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/corydolphin/flask-cors/commit/eb39516a3c96b90d0ae5f51293972395ec3ef358"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/corydolphin/flask-cors"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/corydolphin/flask-cors/blob/4.0.1/flask_cors/extension.py#L195"
+        },
+        {
+          "type": "WEB",
+          "url": "https://huntr.com/bounties/808c11af-faee-43a8-824b-b5ab4f62b9e6"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/05/msg00049.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-43qf-4rqw-9q2g",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "eb39516a3c96b90d0ae5f51293972395ec3ef358",
+      "authored_at": "2025-05-14T21:13:34-07:00",
+      "committed_at": "2025-05-14T21:13:34-07:00",
+      "message": "[CVE-2024-6866] Case Sensitive Request Path Matching (#390)\n\n* [CVE-2024-6866] Case Sensitive Request Path Matching\n\n* Update flask_cors/core.py\n\n---------\n\nCo-authored-by: Cory Dolphin <<email>>",
+      "url": "https://github.com/corydolphin/flask-cors/commit/eb39516a3c96b90d0ae5f51293972395ec3ef358"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 390,
+        "url": "https://github.com/corydolphin/flask-cors/pull/390",
+        "title": "[CVE-2024-6866] Case Sensitive Request Path Matching",
+        "body": "## [CVE-2024-6866] Case Sensitive Request Path Matching\r\n\r\nPath matching was **incorrectly** case-insensitive due to reuse of a regex matcher (try_match) intended for hostnames. Since URL paths are case-sensitive, this flaw allowed unintended CORS access to protected routes that differed only by case (e.g., /Admin vs /admin), resulting in unauthorized origin access and potential data exposure.\r\n\r\n@corydolphin to carefully review this PR.\r\n\r\nAddresses 1/3 issues raised in https://github.com/corydolphin/flask-cors/issues/384",
+        "merged_at": "2025-05-15T04:13:34Z",
+        "merge_commit_sha": "eb39516a3c96b90d0ae5f51293972395ec3ef358"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T01:23:45+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

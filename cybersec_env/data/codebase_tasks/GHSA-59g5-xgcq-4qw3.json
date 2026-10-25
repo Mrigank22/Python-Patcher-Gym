@@ -1,0 +1,240 @@
+{
+  "id": "GHSA-59g5-xgcq-4qw3",
+  "aliases": [
+    "CVE-2024-53981",
+    "PYSEC-2026-1851"
+  ],
+  "cwes": [
+    "CWE-770"
+  ],
+  "severity": "HIGH",
+  "package": "python-multipart",
+  "repo": {
+    "owner": "Kludex",
+    "name": "python-multipart",
+    "url": "https://github.com/Kludex/python-multipart"
+  },
+  "base_commit": "5b1aed83adadbff1677779cd0df53723cd80a0d6",
+  "fix_commit": "c4fe4d3cebc08c660e57dd709af1ffa7059b3177",
+  "python_requires": ">=3.8",
+  "changed_source_files": [
+    "python_multipart/__init__.py",
+    "python_multipart/multipart.py"
+  ],
+  "changed_test_files": [
+    "tests/test_multipart.py"
+  ],
+  "source_patch": "diff --git a/python_multipart/__init__.py b/python_multipart/__init__.py\nindex 69a3ed4..d555f80 100644\n--- a/python_multipart/__init__.py\n+++ b/python_multipart/__init__.py\n@@ -2,7 +2,7 @@\n __author__ = \"Andrew Dunham\"\n __license__ = \"Apache\"\n __copyright__ = \"Copyright (c) 2012-2013, Andrew Dunham\"\n-__version__ = \"0.0.18\"\n+__version__ = \"0.0.19\"\n \n from .multipart import (\n     BaseParser,\ndiff --git a/python_multipart/multipart.py b/python_multipart/multipart.py\nindex be76d24..a996379 100644\n--- a/python_multipart/multipart.py\n+++ b/python_multipart/multipart.py\n@@ -1397,6 +1397,10 @@ class MultipartParser(BaseParser):\n                     i -= 1\n \n             elif state == MultipartState.END:\n+                # Don't do anything if chunk ends with CRLF.\n+                if c == CR and i + 1 < length and data[i + 1] == LF:\n+                    i += 2\n+                    continue\n                 # Skip data after the last boundary.\n                 self.logger.warning(\"Skipping data after last boundary\")\n                 i = length\n",
+  "test_patch": "diff --git a/tests/test_multipart.py b/tests/test_multipart.py\nindex 7fbeff7..ce92ff4 100644\n--- a/tests/test_multipart.py\n+++ b/tests/test_multipart.py\n@@ -1,5 +1,6 @@\n from __future__ import annotations\n \n+import logging\n import os\n import random\n import sys\n@@ -9,6 +10,7 @@ from io import BytesIO\n from typing import TYPE_CHECKING, cast\n from unittest.mock import Mock\n \n+import pytest\n import yaml\n \n from python_multipart.decoders import Base64Decoder, QuotedPrintableDecoder\n@@ -1248,6 +1250,30 @@ class TestFormParser(unittest.TestCase):\n         f = FormParser(\"multipart/form-data\", on_field=Mock(), on_file=on_file, boundary=\"boundary\")\n         f.write(data.encode(\"latin-1\"))\n \n+    @pytest.fixture(autouse=True)\n+    def inject_fixtures(self, caplog: pytest.LogCaptureFixture) -> None:\n+        self._caplog = caplog\n+\n+    def test_multipart_parser_data_end_with_crlf_without_warnings(self) -> None:\n+        \"\"\"This test makes sure that the parser does not handle when the data ends with a CRLF.\"\"\"\n+        data = (\n+            \"--boundary\\r\\n\"\n+            'Content-Disposition: form-data; name=\"file\"; filename=\"filename.txt\"\\r\\n'\n+            \"Content-Type: text/plain\\r\\n\\r\\n\"\n+            \"hello\\r\\n\"\n+            \"--boundary--\\r\\n\"\n+        )\n+\n+        files: list[File] = []\n+\n+        def on_file(f: FileProtocol) -> None:\n+            files.append(cast(File, f))\n+\n+        f = FormParser(\"multipart/form-data\", on_field=Mock(), on_file=on_file, boundary=\"boundary\")\n+        with self._caplog.at_level(logging.WARNING):\n+            f.write(data.encode(\"latin-1\"))\n+            assert len(self._caplog.records) == 0\n+\n     def test_max_size_multipart(self) -> None:\n         # Load test data.\n         test_file = \"single_field_single_file.http\"\n",
+  "summary": "Denial of service (DoS) via deformation `multipart/form-data` boundary",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `python-multipart` has a security vulnerability (CWE-770). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_multipart.TestFormParser::test_multipart_parser_data_end_with_crlf_without_warnings"
+  ],
+  "p2p_tests": [
+    "tests.test_multipart.TestBase64Decoder::test_bad",
+    "tests.test_multipart.TestBase64Decoder::test_bad_length",
+    "tests.test_multipart.TestBase64Decoder::test_bad_split",
+    "tests.test_multipart.TestBase64Decoder::test_close_and_finalize",
+    "tests.test_multipart.TestBase64Decoder::test_long_bad_split",
+    "tests.test_multipart.TestBase64Decoder::test_simple",
+    "tests.test_multipart.TestBase64Decoder::test_split_properly",
+    "tests.test_multipart.TestBaseParser::test_callbacks",
+    "tests.test_multipart.TestField::test_cache_expiration",
+    "tests.test_multipart.TestField::test_close",
+    "tests.test_multipart.TestField::test_data",
+    "tests.test_multipart.TestField::test_equality",
+    "tests.test_multipart.TestField::test_equality_with_other",
+    "tests.test_multipart.TestField::test_finalize",
+    "tests.test_multipart.TestField::test_from_value",
+    "tests.test_multipart.TestField::test_name",
+    "tests.test_multipart.TestField::test_set_none",
+    "tests.test_multipart.TestFile::test_file_fallback",
+    "tests.test_multipart.TestFile::test_file_fallback_with_data",
+    "tests.test_multipart.TestFile::test_file_full_name",
+    "tests.test_multipart.TestFile::test_file_full_name_with_ext",
+    "tests.test_multipart.TestFile::test_file_name",
+    "tests.test_multipart.TestFile::test_invalid_dir_no_name",
+    "tests.test_multipart.TestFile::test_invalid_dir_with_name",
+    "tests.test_multipart.TestFile::test_invalid_write",
+    "tests.test_multipart.TestFile::test_no_dir_with_extension",
+    "tests.test_multipart.TestFile::test_simple",
+    "tests.test_multipart.TestFormParser::test_bad_content_transfer_encoding",
+    "tests.test_multipart.TestFormParser::test_bad_content_type",
+    "tests.test_multipart.TestFormParser::test_bad_start_boundary",
+    "tests.test_multipart.TestFormParser::test_close_methods",
+    "tests.test_multipart.TestFormParser::test_feed_blocks",
+    "tests.test_multipart.TestFormParser::test_feed_single_bytes__namealmostmatchboundarytestbboundaryrnContentDispositionformdatanamefilefilenametesttxtrnContentTypetextplainrnrnboundarirnboundaryqboundaryrqboundarqrnbounarydrnnotboundrnmismatchrnmismatchrnboundaryQrnboundaryrQboundaryQrnboundaryrnresultboundaryboundaryexpectednamefiletypefilefilenametesttxtdatabboundarirnboundaryqboundaryrqboundarqrnbounarydrnnotboundrnmismatchrnmismatchrnboundaryQrnboundaryrQboundaryQ",
+    "tests.test_multipart.TestFormParser::test_feed_single_bytes__namealmostmatchboundarywithoutCRtestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_feed_single_bytes__namealmostmatchboundarywithoutLFtestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryrQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryrQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_feed_single_bytes__namealmostmatchboundarywithoutfinalhyphentestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_feed_single_bytes__namesinglefieldsinglefiletestbboundaryrnContentDispositionformdatanamefieldrnrntest1rnboundaryrnContentDispositionformdatanamefilefilenamefiletxtrnContentTypetextplainrnrntest2rnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabtest1namefiletypefilefilenamefiletxtdatabtest2",
+    "tests.test_multipart.TestFormParser::test_handles_None_fields",
+    "tests.test_multipart.TestFormParser::test_header_begin_callback",
+    "tests.test_multipart.TestFormParser::test_http__nameCRLFinheadertestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentrnispositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror50",
+    "tests.test_multipart.TestFormParser::test_http__nameCRinheadertestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentrispositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror50",
+    "tests.test_multipart.TestFormParser::test_http__nameCRinheadervaluetestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanrmefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror76",
+    "tests.test_multipart.TestFormParser::test_http__namealmostmatchboundarytestbboundaryrnContentDispositionformdatanamefilefilenametesttxtrnContentTypetextplainrnrnboundarirnboundaryqboundaryrqboundarqrnbounarydrnnotboundrnmismatchrnmismatchrnboundaryQrnboundaryrQboundaryQrnboundaryrnresultboundaryboundaryexpectednamefiletypefilefilenametesttxtdatabboundarirnboundaryqboundaryrqboundarqrnbounarydrnnotboundrnmismatchrnmismatchrnboundaryQrnboundaryrQboundaryQ",
+    "tests.test_multipart.TestFormParser::test_http__namealmostmatchboundarywithoutCRtestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_http__namealmostmatchboundarywithoutLFtestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryrQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryrQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_http__namealmostmatchboundarywithoutfinalhyphentestbboundaryrnContentDispositionformdatanamefieldrnrnQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQrnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabQQQQQQQQQQQQQQQQQQQQrnboundaryQQQQQQQQQQQQQQQQQQQQ",
+    "tests.test_multipart.TestFormParser::test_http__namebadendofheaderstestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefieldrnrQThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror89",
+    "tests.test_multipart.TestFormParser::test_http__namebadheaderchartestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentpositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror50",
+    "tests.test_multipart.TestFormParser::test_http__namebadinitialboundarytestbWebQitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror9",
+    "tests.test_multipart.TestFormParser::test_http__namebase64encodingtestbboundaryrnContentDispositionformdatanamefilefilenametesttxtrnContentTypetextplainrnContentTransferEncodingbase64rnrnVGVzdCAxMjMrnboundaryrnresultboundaryboundaryexpectednamefiletypefilefilenametesttxtdatabTest123",
+    "tests.test_multipart.TestFormParser::test_http__nameemptyheadertestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectederror42",
+    "tests.test_multipart.TestFormParser::test_http__nameheaderwithnumbertestbb8825ae386be4fdc9644d87e392caad3rnContentDispositionformdatafilenamesecrettxtnamefilesrnContentTypetextplaincharsetutf8rnXFunkyHeader1barrnabcdefghijklmnopqrstuvwxyz01234foornABCDEFGHIJKLMNOPQRSTUVWXYZ56789barrnotherbazrnContentLength6rnrnaaaaaarnb8825ae386be4fdc9644d87e392caad3resultboundaryb8825ae386be4fdc9644d87e392caad3expectednamefilestypefilefilenamesecrettxtdatabaaaaaa",
+    "tests.test_multipart.TestFormParser::test_http__namemixedplainandbase64encodingtestbboundaryrnContentTypetextplaincharsetUTF8rnContentDispositionformdatanamefield1rnContentTransferEncodingbase64rnrnVGVzdCAxMjMrnboundaryrnContentTypetextplaincharsetUTF8rnContentDispositionformdatanamefield2rnrnThisisatestrnboundaryrnContentTypetextplaincharsetUTF8rnContentDispositionformdatanamefield3rnContentTransferEncodingbase64rnrnVGVzdCBzdHJpbmcuCgrnboundaryrnContentTypetextplaincharsetUTF8rnContentDispositionformdatanamefield4rnrnThisisalsoatestrnboundaryresultboundaryboundaryexpectednamefield1typefielddatabTest123namefield2typefielddatabThisisatestnamefield3typefielddatabTeststringnnamefield4typefielddatabThisisalsoatest",
+    "tests.test_multipart.TestFormParser::test_http__namemultiplefieldstestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefield1rnrnfield1rnWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefield2rnrnfield2rnWebKitFormBoundaryTkr3kCBQlBe1nrhcrnresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectednamefield1typefielddatabfield1namefield2typefielddatabfield2",
+    "tests.test_multipart.TestFormParser::test_http__namemultiplefilestestbWebKitFormBoundarygbACTUR58IyeurVfrnContentDispositionformdatanamefile1filenametest1txtrnContentTypetextplainrnrnTestfile1rnWebKitFormBoundarygbACTUR58IyeurVfrnContentDispositionformdatanamefile2filenametest2txtrnContentTypetextplainrnrnTestfile2rnWebKitFormBoundarygbACTUR58IyeurVfrnresultboundaryWebKitFormBoundarygbACTUR58IyeurVfexpectednamefile1typefilefilenametest1txtdatabTestfile1namefile2typefilefilenametest2txtdatabTestfile2",
+    "tests.test_multipart.TestFormParser::test_http__namequotedprintableencodingtestbboundaryrnContentDispositionformdatanamefilefilenametesttxtrnContentTypetextplainrnContentTransferEncodingquotedprintablernrnfoo3Dbarrnboundaryrnresultboundaryboundaryexpectednamefiletypefilefilenametesttxtdatabfoobar",
+    "tests.test_multipart.TestFormParser::test_http__namesinglefieldlongertestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefieldrnrnqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectednamefieldtypefielddatabqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "tests.test_multipart.TestFormParser::test_http__namesinglefieldsinglefiletestbboundaryrnContentDispositionformdatanamefieldrnrntest1rnboundaryrnContentDispositionformdatanamefilefilenamefiletxtrnContentTypetextplainrnrntest2rnboundaryresultboundaryboundaryexpectednamefieldtypefielddatabtest1namefiletypefilefilenamefiletxtdatabtest2",
+    "tests.test_multipart.TestFormParser::test_http__namesinglefieldtestbWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectednamefieldtypefielddatabThisisatest",
+    "tests.test_multipart.TestFormParser::test_http__namesinglefieldwithleadingnewlinestestbrnrnWebKitFormBoundaryTkr3kCBQlBe1nrhcrnContentDispositionformdatanamefieldrnrnThisisatestrnWebKitFormBoundaryTkr3kCBQlBe1nrhcresultboundaryWebKitFormBoundaryTkr3kCBQlBe1nrhcexpectednamefieldtypefielddatabThisisatest",
+    "tests.test_multipart.TestFormParser::test_http__namesinglefiletestbWebKitFormBoundary5BZGOJCWtXGYC9HWrnContentDispositionformdatanamefilefilenametesttxtrnContentTypetextplainrnrnThisisatestfilernWebKitFormBoundary5BZGOJCWtXGYC9HWrnresultboundaryWebKitFormBoundary5BZGOJCWtXGYC9HWexpectednamefiletypefilefilenametesttxtdatabThisisatestfile",
+    "tests.test_multipart.TestFormParser::test_http__nameutf8filenametestbWebKitFormBoundaryI9SCEFp2lpx5DR2KrnContentDispositionformdatanamefilefilenametxtrnContentTypetextplainrnrnxe3x81x93xe3x82x8cxe3x81xafxe3x83x86xe3x82xb9xe3x83x88xe3x81xa7xe3x81x99xe3x80x82rnWebKitFormBoundaryI9SCEFp2lpx5DR2KrnresultboundaryWebKitFormBoundaryI9SCEFp2lpx5DR2Kexpectednamefiletypefilefilenametxtdatabxe3x81x93xe3x82x8cxe3x81xafxe3x83x86xe3x82xb9xe3x83x88xe3x81xa7xe3x81x99xe3x80x82",
+    "tests.test_multipart.TestFormParser::test_invalid_max_size_multipart",
+    "tests.test_multipart.TestFormParser::test_max_size_form_parser",
+    "tests.test_multipart.TestFormParser::test_max_size_multipart",
+    "tests.test_multipart.TestFormParser::test_multipart_parser_data_after_last_boundary",
+    "tests.test_multipart.TestFormParser::test_multipart_parser_newlines_before_first_boundary",
+    "tests.test_multipart.TestFormParser::test_no_boundary_given",
+    "tests.test_multipart.TestFormParser::test_octet_stream",
+    "tests.test_multipart.TestFormParser::test_octet_stream_max_size",
+    "tests.test_multipart.TestFormParser::test_querystring",
+    "tests.test_multipart.TestFormParser::test_random_splitting",
+    "tests.test_multipart.TestFormParser::test_request_body_fuzz",
+    "tests.test_multipart.TestFormParser::test_request_body_fuzz_random_data",
+    "tests.test_multipart.TestHelperFunctions::test_create_form_parser",
+    "tests.test_multipart.TestHelperFunctions::test_create_form_parser_error",
+    "tests.test_multipart.TestHelperFunctions::test_parse_form",
+    "tests.test_multipart.TestHelperFunctions::test_parse_form_content_length",
+    "tests.test_multipart.TestOctetStreamParser::test_invalid_max_size",
+    "tests.test_multipart.TestOctetStreamParser::test_max_size",
+    "tests.test_multipart.TestOctetStreamParser::test_multiple_chunks",
+    "tests.test_multipart.TestOctetStreamParser::test_simple",
+    "tests.test_multipart.TestParseOptionsHeader::test_blank",
+    "tests.test_multipart.TestParseOptionsHeader::test_handles_ie6_bug",
+    "tests.test_multipart.TestParseOptionsHeader::test_handles_rfc_2231",
+    "tests.test_multipart.TestParseOptionsHeader::test_multiple_params",
+    "tests.test_multipart.TestParseOptionsHeader::test_quoted_param",
+    "tests.test_multipart.TestParseOptionsHeader::test_quoted_param_with_escapes",
+    "tests.test_multipart.TestParseOptionsHeader::test_quoted_param_with_semicolon",
+    "tests.test_multipart.TestParseOptionsHeader::test_redos_attack_header",
+    "tests.test_multipart.TestParseOptionsHeader::test_simple",
+    "tests.test_multipart.TestParseOptionsHeader::test_single_param",
+    "tests.test_multipart.TestParseOptionsHeader::test_single_param_with_spaces",
+    "tests.test_multipart.TestQuerystringParser::test_double_sep",
+    "tests.test_multipart.TestQuerystringParser::test_invalid_max_size",
+    "tests.test_multipart.TestQuerystringParser::test_multiple_querystring",
+    "tests.test_multipart.TestQuerystringParser::test_querystring_blank_beginning",
+    "tests.test_multipart.TestQuerystringParser::test_querystring_blank_end",
+    "tests.test_multipart.TestQuerystringParser::test_repr",
+    "tests.test_multipart.TestQuerystringParser::test_semicolon_separator",
+    "tests.test_multipart.TestQuerystringParser::test_simple_querystring",
+    "tests.test_multipart.TestQuerystringParser::test_streaming_break",
+    "tests.test_multipart.TestQuerystringParser::test_streaming_simple",
+    "tests.test_multipart.TestQuerystringParser::test_strict_parsing_fail_double_sep",
+    "tests.test_multipart.TestQuerystringParser::test_strict_parsing_fail_no_value",
+    "tests.test_multipart.TestQuerystringParser::test_strict_parsing_pass",
+    "tests.test_multipart.TestQuerystringParser::test_success_no_value",
+    "tests.test_multipart.TestQuerystringParser::test_too_large_field",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_close_and_finalize",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_not_aligned",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_simple",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_escape",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_newline_escape",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_only_newline_escape",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_split_escape",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_split_newline_escape_1",
+    "tests.test_multipart.TestQuotedPrintableDecoder::test_with_split_newline_escape_2"
+  ],
+  "test_files": [
+    "tests/test_multipart.py"
+  ],
+  "python": "3.8",
+  "n_before_pass": 117,
+  "n_after_pass": 118,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-59g5-xgcq-4qw3",
+      "summary": "Denial of service (DoS) via deformation `multipart/form-data` boundary",
+      "details": "### Summary\n\nWhen parsing form data, `python-multipart` skips line breaks (CR `\\r` or LF `\\n`) in front of the first boundary and any tailing bytes after the last boundary. This happens one byte at a time and emits a log event each time, which may cause excessive logging for certain inputs.\n\nAn attacker could abuse this by sending a malicious request with lots of data before the first or after the last boundary, causing high CPU load and stalling the processing thread for a significant amount of time. In case of ASGI application, this could stall the event loop and prevent other requests from being processed, resulting in a denial of service (DoS).\n\n### Impact\n\nApplications that use `python-multipart` to parse form data (or use frameworks that do so) are affected. \n\n### Original Report\n\nThis security issue was reported by:\n- GitHub security advisory in Starlette on October 30 by @Startr4ck\n- Email to `python-multipart` maintainer on October 3 by @mnqazi",
+      "aliases": [
+        "CVE-2024-53981",
+        "PYSEC-2026-1851"
+      ],
+      "published": "2024-12-02T21:37:04Z",
+      "modified": "2026-09-10T03:50:21.270678783Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "package": "python-multipart",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.0.18"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/Kludex/python-multipart/security/advisories/GHSA-59g5-xgcq-4qw3"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-53981"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/Kludex/python-multipart/commit/c4fe4d3cebc08c660e57dd709af1ffa7059b3177"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/Kludex/python-multipart"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-59g5-xgcq-4qw3",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "c4fe4d3cebc08c660e57dd709af1ffa7059b3177",
+      "authored_at": "2024-12-01T07:59:34+01:00",
+      "committed_at": "2024-12-01T07:59:34+01:00",
+      "message": "Don't warn when CRLF is found after last boundary (#193)",
+      "url": "https://github.com/Kludex/python-multipart/commit/c4fe4d3cebc08c660e57dd709af1ffa7059b3177"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 193,
+        "url": "https://github.com/Kludex/python-multipart/pull/193",
+        "title": "Don't warn when CRLF is found after last boundary",
+        "body": "- Closes #192",
+        "merged_at": "2024-12-01T06:59:34Z",
+        "merge_commit_sha": "c4fe4d3cebc08c660e57dd709af1ffa7059b3177"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:51:44+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

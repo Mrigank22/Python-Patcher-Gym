@@ -1,0 +1,121 @@
+{
+  "id": "GHSA-rcx2-m7jp-p9wj",
+  "aliases": [
+    "CVE-2019-10856",
+    "PYSEC-2019-158"
+  ],
+  "cwes": [
+    "CWE-601"
+  ],
+  "severity": "MODERATE",
+  "package": "notebook",
+  "repo": {
+    "owner": "jupyter",
+    "name": "notebook",
+    "url": "https://github.com/jupyter/notebook"
+  },
+  "base_commit": "16cf97cf3cc7bd3bacf939ecd86f2c1cc6944935",
+  "fix_commit": "979e0bd15e794ceb00cc63737fcd5fd9addc4a99",
+  "python_requires": "",
+  "changed_source_files": [
+    "notebook/auth/login.py"
+  ],
+  "changed_test_files": [
+    "notebook/auth/tests/test_login.py"
+  ],
+  "source_patch": "diff --git a/notebook/auth/login.py b/notebook/auth/login.py\nindex 8dbd611..32c94c3 100644\n--- a/notebook/auth/login.py\n+++ b/notebook/auth/login.py\n@@ -7,9 +7,9 @@ import re\n import os\n \n try:\n-    from urllib.parse import urlparse # Py 3\n+    from urllib.parse import urlparse, urlunparse  # Py 3\n except ImportError:\n-    from urlparse import urlparse # Py 2\n+    from urlparse import urlparse, urlunparse  # Py 2\n import uuid\n \n from tornado.escape import url_escape\n@@ -44,15 +44,18 @@ class LoginHandler(IPythonHandler):\n         # instead of %5C, causing `\\\\` to behave as `//`\n         url = url.replace(\"\\\\\", \"%5C\")\n         parsed = urlparse(url)\n-        if parsed.netloc or not (parsed.path + '/').startswith(self.base_url):\n+        path_only = urlunparse(parsed._replace(netloc='', scheme=''))\n+        if url != path_only or not (parsed.path + '/').startswith(self.base_url):\n             # require that next_url be absolute path within our path\n             allow = False\n             # OR pass our cross-origin check\n-            if parsed.netloc:\n+            if url != path_only:\n                 # if full URL, run our cross-origin check:\n                 origin = '%s://%s' % (parsed.scheme, parsed.netloc)\n                 origin = origin.lower()\n-                if self.allow_origin:\n+                if origin == '%s://%s' % (self.request.protocol, self.request.host):\n+                    allow = True\n+                elif self.allow_origin:\n                     allow = self.allow_origin == origin\n                 elif self.allow_origin_pat:\n                     allow = bool(self.allow_origin_pat.match(origin))\n",
+  "test_patch": "diff --git a/notebook/auth/tests/test_login.py b/notebook/auth/tests/test_login.py\nindex 2b55742..9120b53 100644\n--- a/notebook/auth/tests/test_login.py\n+++ b/notebook/auth/tests/test_login.py\n@@ -31,6 +31,8 @@ class LoginTest(NotebookTestBase):\n             \"//host\" + self.url_prefix + \"tree\",\n             \"https://google.com\",\n             \"/absolute/not/base_url\",\n+            \"///jupyter.org\",\n+            \"/\\\\some-host\",\n         ):\n             url = self.login(next=bad_next)\n             self.assertEqual(url, self.url_prefix)\n@@ -39,10 +41,14 @@ class LoginTest(NotebookTestBase):\n     def test_next_ok(self):\n         for next_path in (\n             \"tree/\",\n-            \"//\" + self.url_prefix + \"tree\",\n+            self.base_url() + \"has/host\",\n             \"notebooks/notebook.ipynb\",\n             \"tree//something\",\n         ):\n-            expected = self.url_prefix + next_path\n+            if \"://\" in next_path:\n+                expected = next_path\n+            else:\n+                expected = self.url_prefix + next_path\n+\n             actual = self.login(next=expected)\n             self.assertEqual(actual, expected)\n",
+  "summary": "Jupyter Notebook open redirect vulnerability",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `notebook` has a security vulnerability (CWE-601). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "notebook.auth.tests.test_login.LoginTest::test_next_ok"
+  ],
+  "p2p_tests": [
+    "notebook.auth.tests.test_login.LoginTest::test_next_bad"
+  ],
+  "test_files": [
+    "notebook/auth/tests/test_login.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 1,
+  "n_after_pass": 2,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-rcx2-m7jp-p9wj",
+      "summary": "Jupyter Notebook open redirect vulnerability",
+      "details": "In Jupyter Notebook before 5.7.8, an open redirect can occur via an empty netloc. This issue exists because of an incomplete fix for CVE-2019-10255.",
+      "aliases": [
+        "CVE-2019-10856",
+        "PYSEC-2019-158"
+      ],
+      "published": "2019-04-09T19:47:27Z",
+      "modified": "2024-09-26T14:43:51.423817Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "package": "notebook",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.7.8"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2019-10856"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/jupyter/notebook/commit/979e0bd15e794ceb00cc63737fcd5fd9addc4a99"
+        },
+        {
+          "type": "WEB",
+          "url": "https://blog.jupyter.org/open-redirect-vulnerability-in-jupyter-jupyterhub-adf43583f1e4"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/jupyter/notebook"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/jupyter/notebook/compare/16cf97c...b8e30ea"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/notebook/PYSEC-2019-158.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-rcx2-m7jp-p9wj",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "979e0bd15e794ceb00cc63737fcd5fd9addc4a99",
+      "authored_at": "2019-04-01T11:41:52+02:00",
+      "committed_at": "2019-04-01T12:20:23+02:00",
+      "message": "even more careful with login redirect checks\n\nhandle empty netloc being interpreted as first path part being the netloc by unhelpful browsers",
+      "url": "https://github.com/jupyter/notebook/commit/979e0bd15e794ceb00cc63737fcd5fd9addc4a99"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:39:54+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

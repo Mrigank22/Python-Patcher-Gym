@@ -145,7 +145,7 @@ def main():
     rows.sort(key=lambda r: r.get("published") or "")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / "candidates.jsonl"
-    with open(out, "w", encoding="utf-8") as fh:
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
         for r in rows:
             fh.write(json.dumps(r) + "\n")
 
@@ -166,7 +166,7 @@ def main():
     lines += ["", "## Top 25 CWEs", "", "| CWE | count |", "|---|---|"]
     for cwe, n in by_cwe.most_common(25):
         lines.append(f"| {cwe} | {n} |")
-    (OUT_DIR / "candidates_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (OUT_DIR / "candidates_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
     print(f"scanned {n_total} advisories; wrote {len(rows)} candidates to {out}")
     print(f"era split: {dict(by_era)}")

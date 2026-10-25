@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -156,7 +157,8 @@ class Verifier:
         # it (e.g. anything the candidate printed itself) is not trusted.
         nonce = secrets.token_hex(16)
         request = json.dumps({"task_id": task_id, "candidate_path": candidate_path,
-                              "nonce": nonce, "sandbox": sandbox})
+                              "nonce": nonce, "sandbox": sandbox,
+                              "timeout_s": self.timeout_s})
 
         # The verdict comes back on a private pipe, not stdout: candidate code
         # cannot reach this fd (the worker's untrusted child closes it before
@@ -164,15 +166,24 @@ class Verifier:
         read_fd, write_fd = os.pipe()
         inner = [self.python, "-m", "cybersec_env._grade_worker"]
         env["CSE_VERDICT_FD"] = str(write_fd)
+        if os.name == "nt":  # fd numbers don't cross processes there; handles do
+            import msvcrt
+            env["CSE_VERDICT_HANDLE"] = str(msvcrt.get_osfhandle(write_fd))
         argv, popen_kwargs = sandbox_mod.wrap_command(
             inner, sandbox_dir=sandbox, repo_root=_REPO_ROOT, verdict_fd=write_fd)
 
         proc = None
+        job = None
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = (popen_kwargs.get("creationflags", 0)
+                                             | sandbox_mod.CREATE_SUSPENDED)
         try:
             proc = subprocess.Popen(
                 argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE, env=env, cwd=sandbox, **popen_kwargs,
             )
+            if os.name == "nt":
+                job = sandbox_mod.windows_job_attach(proc)
             os.close(write_fd)
             write_fd = -1
             proc.stdin.write(request.encode("utf-8"))
@@ -182,6 +193,8 @@ class Verifier:
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "timeout", "functional": [], "security": []}
         finally:
+            if job is not None:  # reaps the worker *and* every descendant
+                sandbox_mod.windows_job_close(job)
             if write_fd != -1:
                 os.close(write_fd)
             os.close(read_fd)
@@ -195,7 +208,25 @@ class Verifier:
         enforcing the wall-clock timeout."""
         deadline = time.monotonic() + self.timeout_s
         buf = bytearray()
-        while True:
+        if os.name == "nt":
+            # select() only takes sockets on Windows: read on a helper thread
+            # and enforce the deadline by joining it.
+            def _pump():
+                try:
+                    while True:
+                        chunk = os.read(read_fd, 65536)
+                        if not chunk:
+                            break
+                        buf.extend(chunk)
+                except OSError:
+                    pass
+            reader = threading.Thread(target=_pump, daemon=True)
+            reader.start()
+            reader.join(self.timeout_s)
+            if reader.is_alive():
+                proc.kill()
+                return {"ok": False, "error": "timeout", "functional": [], "security": []}
+        while os.name != "nt":
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 proc.kill()

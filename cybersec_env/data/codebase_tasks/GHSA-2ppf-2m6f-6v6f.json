@@ -1,0 +1,136 @@
+{
+  "id": "GHSA-2ppf-2m6f-6v6f",
+  "aliases": [
+    "CVE-2023-6110",
+    "PYSEC-2026-1853"
+  ],
+  "cwes": [
+    "CWE-237"
+  ],
+  "severity": "MODERATE",
+  "package": "python-openstackclient",
+  "repo": {
+    "owner": "openstack",
+    "name": "python-openstackclient",
+    "url": "https://github.com/openstack/python-openstackclient"
+  },
+  "base_commit": "f3a51b0051372ebf0b57659b15aca32e1481815e",
+  "fix_commit": "bc60e3bb908a7f10c87993d791184bfe46784d6c",
+  "python_requires": "",
+  "changed_source_files": [
+    "openstackclient/identity/common.py",
+    "openstackclient/identity/v3/access_rule.py"
+  ],
+  "changed_test_files": [
+    "openstackclient/tests/unit/identity/v3/test_access_rule.py"
+  ],
+  "source_patch": "diff --git a/openstackclient/identity/common.py b/openstackclient/identity/common.py\nindex 745ffb2..a9d8afa 100644\n--- a/openstackclient/identity/common.py\n+++ b/openstackclient/identity/common.py\n@@ -92,6 +92,18 @@ def get_resource(manager, name_type_or_id):\n         raise exceptions.CommandError(msg % name_type_or_id)\n \n \n+def get_resource_by_id(manager, resource_id):\n+    \"\"\"Get resource by ID\n+\n+    Raises CommandError if the resource is not found\n+    \"\"\"\n+    try:\n+        return manager.get(resource_id)\n+    except identity_exc.NotFound:\n+        msg = _(\"Resource with id {} not found\")\n+        raise exceptions.CommandError(msg.format(resource_id))\n+\n+\n def _get_token_resource(client, resource, parsed_name, parsed_domain=None):\n     \"\"\"Peek into the user's auth token to get resource IDs\n \ndiff --git a/openstackclient/identity/v3/access_rule.py b/openstackclient/identity/v3/access_rule.py\nindex 5eff39c..b9a66e9 100644\n--- a/openstackclient/identity/v3/access_rule.py\n+++ b/openstackclient/identity/v3/access_rule.py\n@@ -37,7 +37,7 @@ class DeleteAccessRule(command.Command):\n             'access_rule',\n             metavar='<access-rule>',\n             nargs=\"+\",\n-            help=_('Access rule(s) to delete (name or ID)'),\n+            help=_('Access rule ID(s) to delete'),\n         )\n         return parser\n \n@@ -47,7 +47,7 @@ class DeleteAccessRule(command.Command):\n         errors = 0\n         for ac in parsed_args.access_rule:\n             try:\n-                access_rule = utils.find_resource(\n+                access_rule = common.get_resource_by_id(\n                     identity_client.access_rules, ac\n                 )\n                 identity_client.access_rules.delete(access_rule.id)\n@@ -114,13 +114,13 @@ class ShowAccessRule(command.ShowOne):\n         parser.add_argument(\n             'access_rule',\n             metavar='<access-rule>',\n-            help=_('Access rule to display (name or ID)'),\n+            help=_('Access rule ID to display'),\n         )\n         return parser\n \n     def take_action(self, parsed_args):\n         identity_client = self.app.client_manager.identity\n-        access_rule = utils.find_resource(\n+        access_rule = common.get_resource_by_id(\n             identity_client.access_rules, parsed_args.access_rule\n         )\n \n",
+  "test_patch": "diff --git a/openstackclient/tests/unit/identity/v3/test_access_rule.py b/openstackclient/tests/unit/identity/v3/test_access_rule.py\nindex 3727dcf..b62f283 100644\n--- a/openstackclient/tests/unit/identity/v3/test_access_rule.py\n+++ b/openstackclient/tests/unit/identity/v3/test_access_rule.py\n@@ -14,10 +14,9 @@\n #\n \n import copy\n-from unittest import mock\n \n+from keystoneclient import exceptions as identity_exc\n from osc_lib import exceptions\n-from osc_lib import utils\n \n from openstackclient.identity.v3 import access_rule\n from openstackclient.tests.unit import fakes\n@@ -64,11 +63,12 @@ class TestAccessRuleDelete(TestAccessRule):\n         )\n         self.assertIsNone(result)\n \n-    @mock.patch.object(utils, 'find_resource')\n-    def test_delete_multi_access_rules_with_exception(self, find_mock):\n-        find_mock.side_effect = [\n-            self.access_rules_mock.get.return_value,\n-            exceptions.CommandError,\n+    def test_delete_multi_access_rules_with_exception(self):\n+        # mock returns for common.get_resource_by_id\n+        mock_get = self.access_rules_mock.get\n+        mock_get.side_effect = [\n+            mock_get.return_value,\n+            identity_exc.NotFound,\n         ]\n         arglist = [\n             identity_fakes.access_rule_id,\n@@ -87,14 +87,10 @@ class TestAccessRuleDelete(TestAccessRule):\n                 '1 of 2 access rules failed to' ' delete.', str(e)\n             )\n \n-        find_mock.assert_any_call(\n-            self.access_rules_mock, identity_fakes.access_rule_id\n-        )\n-        find_mock.assert_any_call(\n-            self.access_rules_mock, 'nonexistent_access_rule'\n-        )\n+        mock_get.assert_any_call(identity_fakes.access_rule_id)\n+        mock_get.assert_any_call('nonexistent_access_rule')\n \n-        self.assertEqual(2, find_mock.call_count)\n+        self.assertEqual(2, mock_get.call_count)\n         self.access_rules_mock.delete.assert_called_once_with(\n             identity_fakes.access_rule_id\n         )\n",
+  "summary": "OpenStack improperly deletes access rules",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `python-openstackclient` has a security vulnerability (CWE-237). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "openstackclient.tests.unit.identity.v3.test_access_rule.TestAccessRuleDelete::test_delete_multi_access_rules_with_exception"
+  ],
+  "p2p_tests": [
+    "openstackclient.tests.unit.identity.v3.test_access_rule.TestAccessRuleDelete::test_access_rule_delete",
+    "openstackclient.tests.unit.identity.v3.test_access_rule.TestAccessRuleList::test_access_rule_list",
+    "openstackclient.tests.unit.identity.v3.test_access_rule.TestAccessRuleShow::test_access_rule_show"
+  ],
+  "test_files": [
+    "openstackclient/tests/unit/identity/v3/test_access_rule.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 3,
+  "n_after_pass": 4,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-2ppf-2m6f-6v6f",
+      "summary": " OpenStack improperly deletes access rules",
+      "details": "A flaw was found in OpenStack. When a user tries to delete a non-existing access rule in it's scope, it deletes other existing access rules which are not associated with any application credentials.",
+      "aliases": [
+        "CVE-2023-6110",
+        "PYSEC-2026-1853"
+      ],
+      "published": "2024-11-17T12:30:29Z",
+      "modified": "2026-07-07T17:56:20.517694498Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-237"
+      ],
+      "affected": [
+        {
+          "package": "python-openstackclient",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.3.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-6110"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/openstack/python-openstackclient/commit/bc60e3bb908a7f10c87993d791184bfe46784d6c"
+        },
+        {
+          "type": "WEB",
+          "url": "https://access.redhat.com/errata/RHSA-2024:2737"
+        },
+        {
+          "type": "WEB",
+          "url": "https://access.redhat.com/errata/RHSA-2024:2769"
+        },
+        {
+          "type": "WEB",
+          "url": "https://access.redhat.com/security/cve/CVE-2023-6110"
+        },
+        {
+          "type": "WEB",
+          "url": "https://bugzilla.redhat.com/show_bug.cgi?id=2212960"
+        },
+        {
+          "type": "WEB",
+          "url": "https://code.engineering.redhat.com/gerrit/gitweb?p=python-openstackclient.git;a=commit;h=7a7c364bdd7b2cd2b56e73724110710a68d58abf"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/openstack/python-openstackclient"
+        },
+        {
+          "type": "WEB",
+          "url": "https://review.opendev.org/c/openstack/python-openstackclient/+/888697"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-2ppf-2m6f-6v6f",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "bc60e3bb908a7f10c87993d791184bfe46784d6c",
+      "authored_at": "2023-05-31T16:00:02-05:00",
+      "committed_at": "2023-06-05T12:03:15-04:00",
+      "message": "Fix \"access rule\" commands to only use ID\n\nThis patch modifies the access rule commands to use only the resource\nID.  The previous logic incorrectly assumed that access rules have a\n\"name\" property, which resulted in unexpected behaviors.\n\nFor example, \"access rule delete {non-existent-id}\" now results in a\n\"not found\" error instead of sometimes deleting an unrelated rule.\n\nStory: 2010775\nTask: 48163\nChange-Id: Ib5c3b7f86acf1dfe7cc76dfa99fa4c118388bd71",
+      "url": "https://github.com/openstack/python-openstackclient/commit/bc60e3bb908a7f10c87993d791184bfe46784d6c"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:38:43+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

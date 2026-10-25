@@ -1,6 +1,6 @@
 # Advisory candidate index (codebase track)
 
-Collected from OSV PyPI, 26379 advisories scanned.
+Collected from OSV PyPI, 26380 advisories scanned.
 
 - candidates with a GitHub fix commit + PyPI package: **8186**
 - GitHub-reviewed (curated): 4055

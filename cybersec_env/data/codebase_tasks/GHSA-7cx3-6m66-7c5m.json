@@ -1,0 +1,251 @@
+{
+  "id": "GHSA-7cx3-6m66-7c5m",
+  "aliases": [
+    "CVE-2025-47287",
+    "PYSEC-2026-1974"
+  ],
+  "cwes": [
+    "CWE-770"
+  ],
+  "severity": "HIGH",
+  "package": "tornado",
+  "repo": {
+    "owner": "tornadoweb",
+    "name": "tornado",
+    "url": "https://github.com/tornadoweb/tornado"
+  },
+  "base_commit": "ae4a4e4feafc631c3dba64c3fbe185d05c37e356",
+  "fix_commit": "b39b892bf78fe8fea01dd45199aa88307e7162f3",
+  "python_requires": ">= 3.9",
+  "changed_source_files": [
+    "tornado/httputil.py",
+    "tornado/web.py"
+  ],
+  "changed_test_files": [
+    "tornado/test/httpserver_test.py",
+    "tornado/test/httputil_test.py"
+  ],
+  "source_patch": "diff --git a/tornado/httputil.py b/tornado/httputil.py\nindex 7044aca..ef46098 100644\n--- a/tornado/httputil.py\n+++ b/tornado/httputil.py\n@@ -34,7 +34,6 @@ import unicodedata\n from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl\n \n from tornado.escape import native_str, parse_qs_bytes, utf8, to_unicode\n-from tornado.log import gen_log\n from tornado.util import ObjectDict, unicode_type\n \n \n@@ -884,25 +883,22 @@ def parse_body_arguments(\n     \"\"\"\n     if content_type.startswith(\"application/x-www-form-urlencoded\"):\n         if headers and \"Content-Encoding\" in headers:\n-            gen_log.warning(\n-                \"Unsupported Content-Encoding: %s\", headers[\"Content-Encoding\"]\n+            raise HTTPInputError(\n+                \"Unsupported Content-Encoding: %s\" % headers[\"Content-Encoding\"]\n             )\n-            return\n         try:\n             # real charset decoding will happen in RequestHandler.decode_argument()\n             uri_arguments = parse_qs_bytes(body, keep_blank_values=True)\n         except Exception as e:\n-            gen_log.warning(\"Invalid x-www-form-urlencoded body: %s\", e)\n-            uri_arguments = {}\n+            raise HTTPInputError(\"Invalid x-www-form-urlencoded body: %s\" % e) from e\n         for name, values in uri_arguments.items():\n             if values:\n                 arguments.setdefault(name, []).extend(values)\n     elif content_type.startswith(\"multipart/form-data\"):\n         if headers and \"Content-Encoding\" in headers:\n-            gen_log.warning(\n-                \"Unsupported Content-Encoding: %s\", headers[\"Content-Encoding\"]\n+            raise HTTPInputError(\n+                \"Unsupported Content-Encoding: %s\" % headers[\"Content-Encoding\"]\n             )\n-            return\n         try:\n             fields = content_type.split(\";\")\n             for field in fields:\n@@ -911,9 +907,9 @@ def parse_body_arguments(\n                     parse_multipart_form_data(utf8(v), body, arguments, files)\n                     break\n             else:\n-                raise ValueError(\"multipart boundary not found\")\n+                raise HTTPInputError(\"multipart boundary not found\")\n         except Exception as e:\n-            gen_log.warning(\"Invalid multipart/form-data: %s\", e)\n+            raise HTTPInputError(\"Invalid multipart/form-data: %s\" % e) from e\n \n \n def parse_multipart_form_data(\n@@ -942,26 +938,22 @@ def parse_multipart_form_data(\n         boundary = boundary[1:-1]\n     final_boundary_index = data.rfind(b\"--\" + boundary + b\"--\")\n     if final_boundary_index == -1:\n-        gen_log.warning(\"Invalid multipart/form-data: no final boundary\")\n-        return\n+        raise HTTPInputError(\"Invalid multipart/form-data: no final boundary found\")\n     parts = data[:final_boundary_index].split(b\"--\" + boundary + b\"\\r\\n\")\n     for part in parts:\n         if not part:\n             continue\n         eoh = part.find(b\"\\r\\n\\r\\n\")\n         if eoh == -1:\n-            gen_log.warning(\"multipart/form-data missing headers\")\n-            continue\n+            raise HTTPInputError(\"multipart/form-data missing headers\")\n         headers = HTTPHeaders.parse(part[:eoh].decode(\"utf-8\"))\n         disp_header = headers.get(\"Content-Disposition\", \"\")\n         disposition, disp_params = _parse_header(disp_header)\n         if disposition != \"form-data\" or not part.endswith(b\"\\r\\n\"):\n-            gen_log.warning(\"Invalid multipart/form-data\")\n-            continue\n+            raise HTTPInputError(\"Invalid multipart/form-data\")\n         value = part[eoh + 4 : -2]\n         if not disp_params.get(\"name\"):\n-            gen_log.warning(\"multipart/form-data value missing name\")\n-            continue\n+            raise HTTPInputError(\"multipart/form-data missing name\")\n         name = disp_params[\"name\"]\n         if disp_params.get(\"filename\"):\n             ctype = headers.get(\"Content-Type\", \"application/unknown\")\ndiff --git a/tornado/web.py b/tornado/web.py\nindex 0303f54..2f702d6 100644\n--- a/tornado/web.py\n+++ b/tornado/web.py\n@@ -1801,6 +1801,14 @@ class RequestHandler:\n         try:\n             if self.request.method not in self.SUPPORTED_METHODS:\n                 raise HTTPError(405)\n+\n+            # If we're not in stream_request_body mode, this is the place where we parse the body.\n+            if not _has_stream_request_body(self.__class__):\n+                try:\n+                    self.request._parse_body()\n+                except httputil.HTTPInputError as e:\n+                    raise HTTPError(400, \"Invalid body: %s\" % e) from e\n+\n             self.path_args = [self.decode_argument(arg) for arg in args]\n             self.path_kwargs = {\n                 k: self.decode_argument(v, name=k) for (k, v) in kwargs.items()\n@@ -1992,7 +2000,7 @@ def _has_stream_request_body(cls: Type[RequestHandler]) -> bool:\n \n \n def removeslash(\n-    method: Callable[..., Optional[Awaitable[None]]]\n+    method: Callable[..., Optional[Awaitable[None]]],\n ) -> Callable[..., Optional[Awaitable[None]]]:\n     \"\"\"Use this decorator to remove trailing slashes from the request path.\n \n@@ -2021,7 +2029,7 @@ def removeslash(\n \n \n def addslash(\n-    method: Callable[..., Optional[Awaitable[None]]]\n+    method: Callable[..., Optional[Awaitable[None]]],\n ) -> Callable[..., Optional[Awaitable[None]]]:\n     \"\"\"Use this decorator to add a missing trailing slash to the request path.\n \n@@ -2445,8 +2453,9 @@ class _HandlerDelegate(httputil.HTTPMessageDelegate):\n         if self.stream_request_body:\n             future_set_result_unless_cancelled(self.request._body_future, None)\n         else:\n+            # Note that the body gets parsed in RequestHandler._execute so it can be in\n+            # the right exception handler scope.\n             self.request.body = b\"\".join(self.chunks)\n-            self.request._parse_body()\n             self.execute()\n \n     def on_connection_close(self) -> None:\n@@ -3332,7 +3341,7 @@ class GZipContentEncoding(OutputTransform):\n \n \n def authenticated(\n-    method: Callable[..., Optional[Awaitable[None]]]\n+    method: Callable[..., Optional[Awaitable[None]]],\n ) -> Callable[..., Optional[Awaitable[None]]]:\n     \"\"\"Decorate methods with this to require that the user be logged in.\n \n",
+  "test_patch": "diff --git a/tornado/test/httpserver_test.py b/tornado/test/httpserver_test.py\nindex 570cb64..f197cfe 100644\n--- a/tornado/test/httpserver_test.py\n+++ b/tornado/test/httpserver_test.py\n@@ -1148,9 +1148,9 @@ class GzipUnsupportedTest(GzipBaseTest, AsyncHTTPTestCase):\n         # Gzip support is opt-in; without it the server fails to parse\n         # the body (but parsing form bodies is currently just a log message,\n         # not a fatal error).\n-        with ExpectLog(gen_log, \"Unsupported Content-Encoding\"):\n+        with ExpectLog(gen_log, \".*Unsupported Content-Encoding\"):\n             response = self.post_gzip(\"foo=bar\")\n-        self.assertEqual(json_decode(response.body), {})\n+        self.assertEqual(response.code, 400)\n \n \n class StreamingChunkSizeTest(AsyncHTTPTestCase):\ndiff --git a/tornado/test/httputil_test.py b/tornado/test/httputil_test.py\nindex 30fbec4..7a09bea 100644\n--- a/tornado/test/httputil_test.py\n+++ b/tornado/test/httputil_test.py\n@@ -12,7 +12,6 @@ from tornado.httputil import (\n )\n from tornado.escape import utf8, native_str\n from tornado.log import gen_log\n-from tornado.testing import ExpectLog\n from tornado.test.util import ignore_deprecation\n \n import copy\n@@ -195,7 +194,9 @@ Foo\n             b\"\\n\", b\"\\r\\n\"\n         )\n         args, files = form_data_args()\n-        with ExpectLog(gen_log, \"multipart/form-data missing headers\"):\n+        with self.assertRaises(\n+            HTTPInputError, msg=\"multipart/form-data missing headers\"\n+        ):\n             parse_multipart_form_data(b\"1234\", data, args, files)\n         self.assertEqual(files, {})\n \n@@ -209,7 +210,7 @@ Foo\n             b\"\\n\", b\"\\r\\n\"\n         )\n         args, files = form_data_args()\n-        with ExpectLog(gen_log, \"Invalid multipart/form-data\"):\n+        with self.assertRaises(HTTPInputError, msg=\"Invalid multipart/form-data\"):\n             parse_multipart_form_data(b\"1234\", data, args, files)\n         self.assertEqual(files, {})\n \n@@ -222,7 +223,7 @@ Foo--1234--\"\"\".replace(\n             b\"\\n\", b\"\\r\\n\"\n         )\n         args, files = form_data_args()\n-        with ExpectLog(gen_log, \"Invalid multipart/form-data\"):\n+        with self.assertRaises(HTTPInputError, msg=\"Invalid multipart/form-data\"):\n             parse_multipart_form_data(b\"1234\", data, args, files)\n         self.assertEqual(files, {})\n \n@@ -236,7 +237,9 @@ Foo\n             b\"\\n\", b\"\\r\\n\"\n         )\n         args, files = form_data_args()\n-        with ExpectLog(gen_log, \"multipart/form-data value missing name\"):\n+        with self.assertRaises(\n+            HTTPInputError, msg=\"multipart/form-data value missing name\"\n+        ):\n             parse_multipart_form_data(b\"1234\", data, args, files)\n         self.assertEqual(files, {})\n \n",
+  "summary": "Tornado vulnerable to excessive logging caused by malformed multipart form data",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `tornado` has a security vulnerability (CWE-770). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tornado.test.httpserver_test.GzipUnsupportedTest::test_gzip_unsupported",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_content_disposition_header_without_name_parameter",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_invalid_content_disposition",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_line_does_not_end_with_correct_line_break",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_missing_headers"
+  ],
+  "p2p_tests": [
+    "tornado.test.httpserver_test.BadSSLOptionsTest::test_missing_arguments",
+    "tornado.test.httpserver_test.BadSSLOptionsTest::test_missing_key",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_body_size_override_reset",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_buffered",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_buffered_chunked",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_streaming",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_streaming_chunked",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_streaming_chunked_override",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_large_body_streaming_override",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_small_body",
+    "tornado.test.httpserver_test.BodyLimitsTest::test_timeout",
+    "tornado.test.httpserver_test.GzipBaseTest::test_uncompressed",
+    "tornado.test.httpserver_test.GzipTest::test_gzip",
+    "tornado.test.httpserver_test.GzipTest::test_gzip_case_insensitive",
+    "tornado.test.httpserver_test.GzipTest::test_uncompressed",
+    "tornado.test.httpserver_test.GzipUnsupportedTest::test_uncompressed",
+    "tornado.test.httpserver_test.HTTPConnectionTest::test_100_continue",
+    "tornado.test.httpserver_test.HTTPConnectionTest::test_multipart_form",
+    "tornado.test.httpserver_test.HTTPConnectionTest::test_newlines",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_body",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_body_duplicate_header",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_body_invalid_size",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_body_transfer_encoding_and_content_length",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_body_unsupported_transfer_encoding",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_chunked_request_uppercase",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_empty_request",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_invalid_content_length",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_invalid_methods",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_malformed_first_line_log",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_malformed_first_line_response",
+    "tornado.test.httpserver_test.HTTPServerRawTest::test_malformed_headers",
+    "tornado.test.httpserver_test.HTTPServerTest::test_double_slash",
+    "tornado.test.httpserver_test.HTTPServerTest::test_empty_post_parameters",
+    "tornado.test.httpserver_test.HTTPServerTest::test_empty_query_string",
+    "tornado.test.httpserver_test.HTTPServerTest::test_post_encodings",
+    "tornado.test.httpserver_test.HTTPServerTest::test_query_string_encoding",
+    "tornado.test.httpserver_test.HTTPServerTest::test_types",
+    "tornado.test.httpserver_test.IdleTimeoutTest::test_idle_after_use",
+    "tornado.test.httpserver_test.IdleTimeoutTest::test_unused_connection",
+    "tornado.test.httpserver_test.InvalidOutputContentLengthTest::test_invalid_output_content_length",
+    "tornado.test.httpserver_test.KeepAliveTest::test_cancel_during_download",
+    "tornado.test.httpserver_test.KeepAliveTest::test_finish_while_closed",
+    "tornado.test.httpserver_test.KeepAliveTest::test_http10",
+    "tornado.test.httpserver_test.KeepAliveTest::test_http10_keepalive",
+    "tornado.test.httpserver_test.KeepAliveTest::test_http10_keepalive_extra_crlf",
+    "tornado.test.httpserver_test.KeepAliveTest::test_keepalive_chunked",
+    "tornado.test.httpserver_test.KeepAliveTest::test_keepalive_chunked_head_no_body",
+    "tornado.test.httpserver_test.KeepAliveTest::test_pipelined_cancel",
+    "tornado.test.httpserver_test.KeepAliveTest::test_pipelined_requests",
+    "tornado.test.httpserver_test.KeepAliveTest::test_request_close",
+    "tornado.test.httpserver_test.KeepAliveTest::test_two_requests",
+    "tornado.test.httpserver_test.LegacyInterfaceTest::test_legacy_interface",
+    "tornado.test.httpserver_test.ManualProtocolTest::test_manual_protocol",
+    "tornado.test.httpserver_test.MaxHeaderSizeTest::test_large_headers",
+    "tornado.test.httpserver_test.MaxHeaderSizeTest::test_small_headers",
+    "tornado.test.httpserver_test.SSLTest::test_error_logging",
+    "tornado.test.httpserver_test.SSLTest::test_large_post",
+    "tornado.test.httpserver_test.SSLTest::test_non_ssl_request",
+    "tornado.test.httpserver_test.SSLTest::test_ssl",
+    "tornado.test.httpserver_test.SSLXHeaderTest::test_request_without_xprotocol",
+    "tornado.test.httpserver_test.StreamingChunkSizeTest::test_chunked_body",
+    "tornado.test.httpserver_test.StreamingChunkSizeTest::test_chunked_compressed",
+    "tornado.test.httpserver_test.StreamingChunkSizeTest::test_compressed_body",
+    "tornado.test.httpserver_test.StreamingChunkSizeTest::test_regular_body",
+    "tornado.test.httpserver_test.UnixSocketTestAbstract::test_unix_socket",
+    "tornado.test.httpserver_test.UnixSocketTestAbstract::test_unix_socket_bad_request",
+    "tornado.test.httpserver_test.UnixSocketTestFile::test_unix_socket",
+    "tornado.test.httpserver_test.UnixSocketTestFile::test_unix_socket_bad_request",
+    "tornado.test.httpserver_test.XHeaderTest::test_ip_headers",
+    "tornado.test.httpserver_test.XHeaderTest::test_scheme_headers",
+    "tornado.test.httpserver_test.XHeaderTest::test_trusted_downstream",
+    "tornado.test.httputil_test.FormatTimestampTest::test_other_aware_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_struct_time",
+    "tornado.test.httputil_test.FormatTimestampTest::test_time_tuple",
+    "tornado.test.httputil_test.FormatTimestampTest::test_unix_time_float",
+    "tornado.test.httputil_test.FormatTimestampTest::test_unix_time_int",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_aware_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_naive_datetime",
+    "tornado.test.httputil_test.FormatTimestampTest::test_utc_naive_datetime_deprecated",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_continuation",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_copy",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_forbidden_ascii_characters",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_invalid_header_names",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_multi_line",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_optional_cr",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_pickle_roundtrip",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_setdefault",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_string",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_unicode_newlines",
+    "tornado.test.httputil_test.HTTPHeadersTest::test_unicode_whitespace",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_body_is_a_byte_string",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_default_constructor",
+    "tornado.test.httputil_test.HTTPServerRequestTest::test_repr_does_not_contain_headers",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_boundary_starts_and_ends_with_quotes",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_data_after_final_boundary",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_file_upload",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_non_ascii_filename",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_special_filenames",
+    "tornado.test.httputil_test.MultipartFormDataTest::test_unquoted_names",
+    "tornado.test.httputil_test.ParseCookieTest::test_cookie_edgecases",
+    "tornado.test.httputil_test.ParseCookieTest::test_invalid_cookies",
+    "tornado.test.httputil_test.ParseCookieTest::test_python_cookies",
+    "tornado.test.httputil_test.ParseCookieTest::test_unquote",
+    "tornado.test.httputil_test.ParseCookieTest::test_unquote_large",
+    "tornado.test.httputil_test.ParseRequestStartLineTest::test_parse_request_start_line",
+    "tornado.test.httputil_test.QsParseTest::test_parsing",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_dict_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_encode_args",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_mult_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_multi_same_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_multi_same_query_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_no_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_no_query_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_none_params",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_q_with_no_trailing_amp",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_trailing_amp",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_trailing_q",
+    "tornado.test.httputil_test.TestUrlConcat::test_url_concat_with_frag"
+  ],
+  "test_files": [
+    "tornado/test/httpserver_test.py",
+    "tornado/test/httputil_test.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 118,
+  "n_after_pass": 123,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-7cx3-6m66-7c5m",
+      "summary": "Tornado vulnerable to excessive logging caused by malformed multipart form data",
+      "details": "### Summary\n\nWhen Tornado's ``multipart/form-data`` parser encounters certain errors, it logs a warning but continues trying to parse the remainder of the data. This allows remote attackers to generate an extremely high volume of logs, constituting a DoS attack. This DoS is compounded by the fact that the logging subsystem is synchronous.\n\n### Affected versions\n\nAll versions of Tornado prior to 6.5 are affected. The vulnerable parser is enabled by default.\n\n### Solution\n\nUpgrade to Tornado version 6.5. In the meantime, risk can be mitigated by blocking `Content-Type: multipart/form-data` in a proxy.",
+      "aliases": [
+        "CVE-2025-47287",
+        "PYSEC-2026-1974"
+      ],
+      "published": "2025-05-16T14:12:40Z",
+      "modified": "2026-09-10T03:50:24.284224963Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "package": "tornado",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.5"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/tornadoweb/tornado/security/advisories/GHSA-7cx3-6m66-7c5m"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-47287"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/tornadoweb/tornado/commit/b39b892bf78fe8fea01dd45199aa88307e7162f3"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/tornadoweb/tornado"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2025/05/msg00038.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-7cx3-6m66-7c5m",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "b39b892bf78fe8fea01dd45199aa88307e7162f3",
+      "authored_at": "2025-05-15T15:49:31-04:00",
+      "committed_at": "2025-05-15T15:49:31-04:00",
+      "message": "Merge pull request #3497 from bdarnell/multipart-log-spam\n\nhttputil: Raise errors instead of logging in multipart/form-data parsing",
+      "url": "https://github.com/tornadoweb/tornado/commit/b39b892bf78fe8fea01dd45199aa88307e7162f3"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 3497,
+        "url": "https://github.com/tornadoweb/tornado/pull/3497",
+        "title": "httputil: Raise errors instead of logging in multipart/form-data parsing",
+        "body": "We used to continue after logging an error, which allowed repeated errors to spam the logs. The error raised here will still be logged, but only once per request, consistent with other error handling in Tornado.",
+        "merged_at": "2025-05-15T19:49:31Z",
+        "merge_commit_sha": "b39b892bf78fe8fea01dd45199aa88307e7162f3"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:34:40+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

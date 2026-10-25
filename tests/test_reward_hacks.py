@@ -94,3 +94,39 @@ def test_oracle_still_scores_one_everywhere():
         inst = get_family(fam).generate(seed=7, difficulty=1)
         res = VERIFIER.grade_source(inst.task_id, inst.reference_code)
         assert res.solved and res.reward == 1.0, (fam, res.reward, res.error)
+
+
+def _live_grade_workers() -> int:
+    """Number of grader worker processes alive right now (any platform)."""
+    import os
+    import subprocess
+
+    if os.name == "nt":
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+             "Where-Object { $_.CommandLine -match '_grade_worker' } | Measure-Object).Count"],
+            capture_output=True, text=True).stdout.strip()
+        return int(out or 0)
+    out = subprocess.run(["pgrep", "-fc", "cybersec_env._grade_worker"],
+                         capture_output=True, text=True).stdout.strip()
+    return int(out or 0)
+
+
+@pytest.mark.parametrize("body", [
+    "    while True:\n        pass\n",
+    # catastrophic backtracking runs inside the C regex engine holding the GIL,
+    # so no in-process watchdog thread can interrupt it
+    "    import re\n    re.match(r'(a+)+$', 'a' * 64 + 'b')\n",
+])
+def test_runaway_candidate_times_out_and_leaves_no_process(body):
+    """A candidate that never returns must score 0 and must not outlive its
+    grade (orphans would pile up during training and starve the machine)."""
+    inst = get_family("sqli").generate(seed=5, difficulty=1)
+    src = f"def {inst.entrypoint}({_SIG['sqli']}):\n" + body
+    before = _live_grade_workers()
+    res = Verifier(timeout_s=3.0, reward_mode="shaped").grade_source(inst.task_id, src)
+    assert not res.solved and res.reward == 0.0, (res.reward, res.error)
+    import time
+    time.sleep(1.0)
+    assert _live_grade_workers() <= before, "grader processes outlived the timeout"

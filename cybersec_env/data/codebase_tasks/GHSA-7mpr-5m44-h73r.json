@@ -1,0 +1,160 @@
+{
+  "id": "GHSA-7mpr-5m44-h73r",
+  "aliases": [
+    "CVE-2025-46656",
+    "PYSEC-2026-1604"
+  ],
+  "cwes": [
+    "CWE-1284"
+  ],
+  "severity": "LOW",
+  "package": "markdownify",
+  "repo": {
+    "owner": "matthewwithanm",
+    "name": "python-markdownify",
+    "url": "https://github.com/matthewwithanm/python-markdownify"
+  },
+  "base_commit": "fe8a821a20629594668288cdfcfe74dd07b62bbf",
+  "fix_commit": "959561879693bf4a576f99c6733b50b01186aa08",
+  "python_requires": "",
+  "changed_source_files": [
+    "markdownify/__init__.py"
+  ],
+  "changed_test_files": [
+    "tests/test_conversions.py"
+  ],
+  "source_patch": "diff --git a/markdownify/__init__.py b/markdownify/__init__.py\nindex cc3d153..c34e57e 100644\n--- a/markdownify/__init__.py\n+++ b/markdownify/__init__.py\n@@ -315,6 +315,9 @@ class MarkdownConverter(object):\n         if convert_as_inline:\n             return text\n \n+        # prevent MemoryErrors in case of very large n\n+        n = max(1, min(6, n))\n+\n         style = self.options['heading_style'].lower()\n         text = text.strip()\n         if style == UNDERLINED and n <= 2:\n",
+  "test_patch": "diff --git a/tests/test_conversions.py b/tests/test_conversions.py\nindex 0be1d0c..1c5f9c2 100644\n--- a/tests/test_conversions.py\n+++ b/tests/test_conversions.py\n@@ -133,6 +133,7 @@ def test_hn():\n     assert md('<h4>Hello</h4>') == '\\n#### Hello\\n\\n'\n     assert md('<h5>Hello</h5>') == '\\n##### Hello\\n\\n'\n     assert md('<h6>Hello</h6>') == '\\n###### Hello\\n\\n'\n+    assert md('<h10>Hello</h10>') == md('<h6>Hello</h6>')\n \n \n def test_hn_chained():\n",
+  "summary": "markdownify allows large headline prefixes such as <h9999999>, which causes memory consumption",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `markdownify` has a security vulnerability (CWE-1284). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_conversions::test_hn"
+  ],
+  "p2p_tests": [
+    "tests.test_conversions::test_a",
+    "tests.test_conversions::test_a_no_autolinks",
+    "tests.test_conversions::test_a_shortcut",
+    "tests.test_conversions::test_a_spaces",
+    "tests.test_conversions::test_a_with_title",
+    "tests.test_conversions::test_b",
+    "tests.test_conversions::test_b_spaces",
+    "tests.test_conversions::test_blockquote",
+    "tests.test_conversions::test_blockquote_nested",
+    "tests.test_conversions::test_blockquote_with_nested_paragraph",
+    "tests.test_conversions::test_blockquote_with_paragraph",
+    "tests.test_conversions::test_br",
+    "tests.test_conversions::test_caption",
+    "tests.test_conversions::test_code",
+    "tests.test_conversions::test_del",
+    "tests.test_conversions::test_div",
+    "tests.test_conversions::test_em",
+    "tests.test_conversions::test_h1",
+    "tests.test_conversions::test_h2",
+    "tests.test_conversions::test_head",
+    "tests.test_conversions::test_header_with_space",
+    "tests.test_conversions::test_hn_atx_closed_headings",
+    "tests.test_conversions::test_hn_atx_headings",
+    "tests.test_conversions::test_hn_chained",
+    "tests.test_conversions::test_hn_nested_img",
+    "tests.test_conversions::test_hn_nested_simple_tag",
+    "tests.test_conversions::test_hn_nested_tag_heading_style",
+    "tests.test_conversions::test_hr",
+    "tests.test_conversions::test_i",
+    "tests.test_conversions::test_img",
+    "tests.test_conversions::test_kbd",
+    "tests.test_conversions::test_lang",
+    "tests.test_conversions::test_lang_callback",
+    "tests.test_conversions::test_p",
+    "tests.test_conversions::test_pre",
+    "tests.test_conversions::test_s",
+    "tests.test_conversions::test_samp",
+    "tests.test_conversions::test_script",
+    "tests.test_conversions::test_spaces",
+    "tests.test_conversions::test_strong",
+    "tests.test_conversions::test_strong_em_symbol",
+    "tests.test_conversions::test_style",
+    "tests.test_conversions::test_sub",
+    "tests.test_conversions::test_sup"
+  ],
+  "test_files": [
+    "tests/test_conversions.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 44,
+  "n_after_pass": 45,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-7mpr-5m44-h73r",
+      "summary": "markdownify allows large headline prefixes such as <h9999999>, which causes memory consumption",
+      "details": "python-markdownify (aka markdownify) before 0.14.1 allows large headline prefixes such as <h9999999> in addition to <h1> through <h6>. This causes memory consumption.",
+      "aliases": [
+        "CVE-2025-46656",
+        "PYSEC-2026-1604"
+      ],
+      "published": "2025-04-27T00:30:34Z",
+      "modified": "2026-07-07T17:56:59.962663920Z",
+      "severity": "LOW",
+      "cwe_ids": [
+        "CWE-1284"
+      ],
+      "affected": [
+        {
+          "package": "markdownify",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.14.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-46656"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/matthewwithanm/python-markdownify/issues/143"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/matthewwithanm/python-markdownify/commit/959561879693bf4a576f99c6733b50b01186aa08"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/matthewwithanm/python-markdownify"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/matthewwithanm/python-markdownify/compare/0.14.0...0.14.1"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-7mpr-5m44-h73r",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "959561879693bf4a576f99c6733b50b01186aa08",
+      "authored_at": "2024-11-24T21:11:42+01:00",
+      "committed_at": "2024-11-24T21:11:42+01:00",
+      "message": "prevent very large headline prefixes\n\nfor example: `<h9999999>` could crash the conversion.\n\nfixes #143",
+      "url": "https://github.com/matthewwithanm/python-markdownify/commit/959561879693bf4a576f99c6733b50b01186aa08"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:13:59+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

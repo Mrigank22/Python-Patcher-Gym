@@ -1,0 +1,245 @@
+{
+  "id": "GHSA-4grg-w6v8-c28g",
+  "aliases": [
+    "CVE-2025-47278",
+    "PYSEC-2026-1377"
+  ],
+  "cwes": [
+    "CWE-683"
+  ],
+  "severity": "LOW",
+  "package": "flask",
+  "repo": {
+    "owner": "pallets",
+    "name": "flask",
+    "url": "https://github.com/pallets/flask"
+  },
+  "base_commit": "941efd4a36ed0f27e13758874f95e3aa1d3ee163",
+  "fix_commit": "73d6504063bfa00666a92b07a28aaf906c532f09",
+  "python_requires": ">=3.9",
+  "changed_source_files": [
+    "src/flask/sessions.py"
+  ],
+  "changed_test_files": [
+    "tests/test_basic.py"
+  ],
+  "source_patch": "diff --git a/src/flask/sessions.py b/src/flask/sessions.py\nindex 375de06..4ffde71 100644\n--- a/src/flask/sessions.py\n+++ b/src/flask/sessions.py\n@@ -318,11 +318,12 @@ class SecureCookieSessionInterface(SessionInterface):\n         if not app.secret_key:\n             return None\n \n-        keys: list[str | bytes] = [app.secret_key]\n+        keys: list[str | bytes] = []\n \n         if fallbacks := app.config[\"SECRET_KEY_FALLBACKS\"]:\n             keys.extend(fallbacks)\n \n+        keys.append(app.secret_key)  # itsdangerous expects current key at top\n         return URLSafeTimedSerializer(\n             keys,  # type: ignore[arg-type]\n             salt=self.salt,\n",
+  "test_patch": "diff --git a/tests/test_basic.py b/tests/test_basic.py\nindex c737dc5..c372a91 100644\n--- a/tests/test_basic.py\n+++ b/tests/test_basic.py\n@@ -381,14 +381,21 @@ def test_session_secret_key_fallbacks(app, client) -> None:\n     def get_session() -> dict[str, t.Any]:\n         return dict(flask.session)\n \n-    # Set session with initial secret key\n+    # Set session with initial secret key, and two valid expiring keys\n+    app.secret_key, app.config[\"SECRET_KEY_FALLBACKS\"] = (\n+        \"0 key\",\n+        [\"-1 key\", \"-2 key\"],\n+    )\n     client.post()\n     assert client.get().json == {\"a\": 1}\n     # Change secret key, session can't be loaded and appears empty\n-    app.secret_key = \"new test key\"\n+    app.secret_key = \"? key\"\n     assert client.get().json == {}\n-    # Add initial secret key as fallback, session can be loaded\n-    app.config[\"SECRET_KEY_FALLBACKS\"] = [\"test key\"]\n+    # Rotate the valid keys, session can be loaded\n+    app.secret_key, app.config[\"SECRET_KEY_FALLBACKS\"] = (\n+        \"+1 key\",\n+        [\"0 key\", \"-1 key\"],\n+    )\n     assert client.get().json == {\"a\": 1}\n \n \n",
+  "summary": "Flask uses fallback key instead of current signing key",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `flask` has a security vulnerability (CWE-683). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_basic::test_session_secret_key_fallbacks"
+  ],
+  "p2p_tests": [
+    "tests.test_basic::test_after_request_processing",
+    "tests.test_basic::test_app_freed_on_zero_refcount",
+    "tests.test_basic::test_baseexception_error_handling",
+    "tests.test_basic::test_before_after_request_order",
+    "tests.test_basic::test_before_request_and_routing_errors",
+    "tests.test_basic::test_build_error_handler",
+    "tests.test_basic::test_build_error_handler_reraise",
+    "tests.test_basic::test_disallow_string_for_allowed_methods",
+    "tests.test_basic::test_enctype_debug_helper",
+    "tests.test_basic::test_endpoint_decorator",
+    "tests.test_basic::test_error_handler_after_processor_error",
+    "tests.test_basic::test_error_handling",
+    "tests.test_basic::test_error_handling_processing",
+    "tests.test_basic::test_errorhandler_precedence",
+    "tests.test_basic::test_exception_propagation[DEBUG]",
+    "tests.test_basic::test_exception_propagation[None]",
+    "tests.test_basic::test_exception_propagation[PROPAGATE_EXCEPTIONS]",
+    "tests.test_basic::test_exception_propagation[TESTING]",
+    "tests.test_basic::test_extended_flashing",
+    "tests.test_basic::test_flashes",
+    "tests.test_basic::test_g_iteration_protocol",
+    "tests.test_basic::test_get_method_on_g",
+    "tests.test_basic::test_http_error_subclass_handling",
+    "tests.test_basic::test_inject_blueprint_url_defaults",
+    "tests.test_basic::test_json_dump_dataclass",
+    "tests.test_basic::test_jsonify_args_and_kwargs_check",
+    "tests.test_basic::test_jsonify_mimetype",
+    "tests.test_basic::test_jsonify_no_prettyprint[False]",
+    "tests.test_basic::test_jsonify_no_prettyprint[True]",
+    "tests.test_basic::test_make_response",
+    "tests.test_basic::test_make_response_with_response_instance",
+    "tests.test_basic::test_max_cookie_size",
+    "tests.test_basic::test_method_route[delete]",
+    "tests.test_basic::test_method_route[get]",
+    "tests.test_basic::test_method_route[patch]",
+    "tests.test_basic::test_method_route[post]",
+    "tests.test_basic::test_method_route[put]",
+    "tests.test_basic::test_method_route_no_methods",
+    "tests.test_basic::test_missing_session",
+    "tests.test_basic::test_multi_route_class_views",
+    "tests.test_basic::test_multi_route_rules",
+    "tests.test_basic::test_no_setup_after_first_request",
+    "tests.test_basic::test_nonascii_pathinfo",
+    "tests.test_basic::test_options_on_multiple_rules",
+    "tests.test_basic::test_options_work",
+    "tests.test_basic::test_provide_automatic_options_attr",
+    "tests.test_basic::test_provide_automatic_options_kwarg",
+    "tests.test_basic::test_request_dispatching",
+    "tests.test_basic::test_request_locals",
+    "tests.test_basic::test_request_preprocessing_early_return",
+    "tests.test_basic::test_request_processing",
+    "tests.test_basic::test_response_type_errors",
+    "tests.test_basic::test_response_types",
+    "tests.test_basic::test_route_decorator_custom_endpoint",
+    "tests.test_basic::test_routing_redirect_debugging",
+    "tests.test_basic::test_run_defaults",
+    "tests.test_basic::test_run_from_config[None-80-pocoo.org:8080-pocoo.org-80]",
+    "tests.test_basic::test_run_from_config[None-None-localhost:0-localhost-0]",
+    "tests.test_basic::test_run_from_config[None-None-localhost:8080-localhost-8080]",
+    "tests.test_basic::test_run_from_config[None-None-pocoo.org:8080-pocoo.org-8080]",
+    "tests.test_basic::test_run_from_config[localhost-0-localhost:8080-localhost-0]",
+    "tests.test_basic::test_run_from_config[localhost-80-pocoo.org:8080-localhost-80]",
+    "tests.test_basic::test_run_from_config[localhost-None-pocoo.org:8080-localhost-8080]",
+    "tests.test_basic::test_run_server_port",
+    "tests.test_basic::test_server_name_matching[False-False-default-default-default]",
+    "tests.test_basic::test_server_name_matching[False-True-default-abc-default]",
+    "tests.test_basic::test_server_name_matching[True-False-default-abc-<invalid>]",
+    "tests.test_basic::test_server_name_subdomain",
+    "tests.test_basic::test_session",
+    "tests.test_basic::test_session_cookie_setting",
+    "tests.test_basic::test_session_expiration",
+    "tests.test_basic::test_session_path",
+    "tests.test_basic::test_session_refresh_vary",
+    "tests.test_basic::test_session_special_types",
+    "tests.test_basic::test_session_stored_last",
+    "tests.test_basic::test_session_using_application_root",
+    "tests.test_basic::test_session_using_samesite_attribute",
+    "tests.test_basic::test_session_using_session_settings",
+    "tests.test_basic::test_session_vary_cookie",
+    "tests.test_basic::test_static_files",
+    "tests.test_basic::test_static_folder_with_ending_slash",
+    "tests.test_basic::test_static_folder_with_pathlib_path",
+    "tests.test_basic::test_static_route_with_host_matching",
+    "tests.test_basic::test_static_url_empty_path",
+    "tests.test_basic::test_static_url_empty_path_default",
+    "tests.test_basic::test_static_url_path",
+    "tests.test_basic::test_static_url_path_with_ending_slash",
+    "tests.test_basic::test_subdomain_basic_support",
+    "tests.test_basic::test_subdomain_matching",
+    "tests.test_basic::test_subdomain_matching_other_name[False]",
+    "tests.test_basic::test_subdomain_matching_other_name[True]",
+    "tests.test_basic::test_subdomain_matching_with_ports",
+    "tests.test_basic::test_teardown_request_handler",
+    "tests.test_basic::test_teardown_request_handler_debug_mode",
+    "tests.test_basic::test_teardown_request_handler_error",
+    "tests.test_basic::test_trap_bad_request_key_error[False-None-True-True]",
+    "tests.test_basic::test_trap_bad_request_key_error[False-True-False-False]",
+    "tests.test_basic::test_trap_bad_request_key_error[True-None-False-True]",
+    "tests.test_basic::test_trapping_of_all_http_exceptions",
+    "tests.test_basic::test_url_for_passes_special_values_to_build_error_handler",
+    "tests.test_basic::test_url_generation",
+    "tests.test_basic::test_url_mapping",
+    "tests.test_basic::test_url_processors",
+    "tests.test_basic::test_user_error_handling",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-False-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-False-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-False-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-False-True-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-True-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-True-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-True-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[False-True-True-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-False-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-False-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-False-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-False-True-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-True-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-True-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-True-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[None-True-True-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-False-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-False-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-False-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-False-True-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-True-False-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-True-False-True]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-True-True-False]",
+    "tests.test_basic::test_werkzeug_passthrough_errors[True-True-True-True]",
+    "tests.test_basic::test_werkzeug_routing"
+  ],
+  "test_files": [
+    "tests/test_basic.py"
+  ],
+  "python": "3.9",
+  "n_before_pass": 129,
+  "n_after_pass": 130,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-4grg-w6v8-c28g",
+      "summary": "Flask uses fallback key instead of current signing key",
+      "details": "In Flask 3.1.0, the way fallback key configuration was handled resulted in the last fallback key being used for signing, rather than the current signing key.\n\nSigning is provided by the `itsdangerous` library. A list of keys can be passed, and it expects the last (top) key in the list to be the most recent key, and uses that for signing. Flask was incorrectly constructing that list in reverse, passing the signing key first.\n\nSites that have opted-in to use key rotation by setting `SECRET_KEY_FALLBACKS` are likely to unexpectedly be signing their sessions with stale keys, and their transition to fresher keys will be impeded. Sessions are still signed, so this would not cause any sort of data integrity loss.",
+      "aliases": [
+        "CVE-2025-47278",
+        "PYSEC-2026-1377"
+      ],
+      "published": "2025-05-13T20:25:26Z",
+      "modified": "2026-09-10T03:50:24.238504042Z",
+      "severity": "LOW",
+      "cwe_ids": [
+        "CWE-683"
+      ],
+      "affected": [
+        {
+          "package": "flask",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "3.1.0"
+                },
+                {
+                  "fixed": "3.1.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/flask/security/advisories/GHSA-4grg-w6v8-c28g"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-47278"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/flask/commit/73d6504063bfa00666a92b07a28aaf906c532f09"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/pallets/flask"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pallets/flask/releases/tag/3.1.1"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-4grg-w6v8-c28g",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "73d6504063bfa00666a92b07a28aaf906c532f09",
+      "authored_at": "2025-05-13T07:46:54-07:00",
+      "committed_at": "2025-05-13T07:46:54-07:00",
+      "message": "Merge commit from fork\n\nSessions: fix signing key selection when key rotation is enabled",
+      "url": "https://github.com/pallets/flask/commit/73d6504063bfa00666a92b07a28aaf906c532f09"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:24:25+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

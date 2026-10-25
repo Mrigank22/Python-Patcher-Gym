@@ -14,13 +14,38 @@ process, nonce or output channel with the part of the worker that issues the
 verdict; every value the candidate returns is reduced to a trusted primitive
 before any probe compares it. An adversarial **reward-hacking audit** and a
 **mutation test** (domain-level probe quality) run as part of the suite. See
-`REPORT.md` §4 and §8 for the exact threat model and the one residual the
-function-level model does not remove (which the roadmap's container track does).
+`REPORT.md` §3–4 for the threat model, the eight flaws training found, and how
+each was closed.
 
-It is **model-agnostic** (train any Hugging Face causal LM — 0.5B on a laptop
-GPU or larger on a server), **framework-light** (the grader has no torch/TRL
-dependency), and ships with a GRPO training loop, a held-out evaluation harness,
-and the audits above.
+It is **model-agnostic** (train any Hugging Face causal LM; everything here was
+trained on one 8 GB laptop GPU), **framework-light** (the grader has no
+torch/TRL dependency), and ships with a GRPO training loop, a held-out
+evaluation harness, a frontier-model comparison, and the audits above.
+
+## Results at a glance
+
+Held-out pass@1 (a task counts as solved only if the exploit is blocked **and**
+the documented behaviour still works), all graded by the same hardened grader:
+
+| Held-out test set | Qwen2.5-Coder-1.5B | + GRPO on this env | Claude Opus 5.5 |
+|---|---|---|---|
+| Procedural tasks (200, 8 CWEs) | 33.4% | **61.0%** (+27.6, p < 0.001) | 100.0% |
+| SecCodePLT test split (110, 15 CWEs) | 17.5% | 22.7% (+5.2, p = 0.051) | 89.1% |
+| CWEval (16, independent tests) | 32.8% | 35.9% (not significant) | 100.0% |
+
+* **RL works on the trained distribution:** +27.6 points in 400 GRPO steps
+  (LoRA, 2 h 19 min on an RTX 4060), with no over-fitting across checkpoints.
+* **It does not transfer** to independently written tests (CWEval).
+* **The grader was broken by training, then hardened:** RL found real reward
+  hacks (a salted-SHA-256 "password hash", a `startswith` path check,
+  "secure but broken" code). All eight flaws are fixed and regression-tested,
+  and 12 attack strategies (300+ attempts) now fail.
+* **A frontier model saturates the procedural tasks.** Opus 5.5's answers also
+  served as a grader check: no insecure code passed, and one class of correct
+  fixes was wrongly rejected (documented, §7.5 of the report).
+
+Full numbers, confidence intervals and every place the project fell short:
+[`REPORT.md`](REPORT.md).
 
 ```
          vulnerable function                      fixed function
@@ -71,6 +96,9 @@ portfolio artifacts hiring managers ask for.
 | Paired comparison | `scripts/compare_evals.py` | base vs trained on the same prompts: change, bootstrap 95% CI, p-value |
 | Failure analysis | `scripts/probe_report.py` | which functional/security probes a model fails, and why |
 | Audit | `scripts/hack_audit.py` | proves reward-hacks score 0 (writes `results/hack_audit.md`) |
+| Probe quality | `scripts/mutation_test.py` | incomplete fixes must fail; alternative correct fixes must pass |
+| Frontier comparison | `scripts/frontier_calibration.py` | runs Claude Opus 5.5 on the same held-out tasks (Batch API, hard spend cap) |
+| Repository-level dataset | `cybersec_env/codebase/`, `scripts/harvest_codebase.py` | real advisories → Docker-verified fail-to-pass tasks (see below) |
 
 ### Vulnerability task families
 
@@ -109,6 +137,25 @@ tasks are all dropped on purpose: their "secure" references still call
 python scripts/import_seccodeplt.py            # needs approved access + a token that can read gated repos
 python scripts/import_cweval.py ../datasets/CWEval
 ```
+
+### Repository-level dataset (in progress)
+
+A second, harder track built from **real security advisories**. Each task is a
+whole repository at the vulnerable commit, rebuilt in Docker, with hidden
+tests that **fail before the human fix and pass after it**. It also carries the
+human-written context: the OSV advisory, related advisories, the fix commit
+message and the PR text (no LLM-written explanations).
+
+| Stage | Count |
+|---|---|
+| PyPI advisories with a GitHub fix commit (OSV) | 8,186 |
+| Fix includes both a test and a source change | 3,570 |
+| Docker-verified fail-to-pass tasks so far | 87 of 722 decided (2,823 queued) |
+
+Every task is re-run three times (flaky tests are dropped) and records its
+exact installed packages; tasks verified before 2026-10-20 are being
+backfilled. Projected size at the current yield: roughly 400–500
+tasks. Details, rejection reasons and the repository grader: `REPORT.md` §8.
 
 ## Quickstart
 
@@ -182,23 +229,27 @@ the behaviour but stay vulnerable* — are both penalised.
    process control (`sys.exit`, `os._exit`), and **assignment to an imported
    module's attribute**, aliases included (so a probe helper like
    `os.path.exists` cannot be monkeypatched, while `self.name = name` is fine).
-2. **Sandboxed subprocess** per candidate: a fresh throwaway folder is its
-   working directory and TEMP and the only place it may write (enforced with a
-   Python audit hook), and it is deleted afterwards, so nothing one answer
-   writes can affect another's grading. Network access and process spawning
-   are blocked, the verdict must carry a per-call token the candidate never
-   sees, and an early exit simply fails the probe. An infinite loop is killed
-   by a wall-clock timeout and scored 0.
+2. **Isolated execution** per candidate: an OS jail on Linux (bubblewrap: no
+   network, read-only filesystem except a throwaway folder), a **fork
+   trust-split** so the candidate never shares a process, nonce or output
+   channel with the code that issues the verdict, a private verdict pipe, and a
+   Windows Job Object off Linux. Every value the candidate returns is reduced to
+   a trusted primitive before comparison, so an object whose `__eq__` is always
+   true earns nothing. An infinite loop is killed by a wall-clock timeout and
+   scored 0.
 3. **Hidden probes** — the functional/security tests live in the grader and are
    rebuilt from the task id inside the worker; the model never sees them.
 4. **No-op and oracle floors** reported on every eval: a do-nothing solution
    must score ≈0 and the reference fix must score 1.0.
-5. **`scripts/hack_audit.py`** runs 64 attacks across all families and asserts
-   none is `solved` while the oracle still scores 1.0 — see
-   [`results/hack_audit.md`](results/hack_audit.md).
+5. **`scripts/hack_audit.py --seeds 3`** runs 12 attack strategies (300+
+   attempts) across all families and asserts none is `solved` while the oracle
+   still scores 1.0 — see [`results/hack_audit.md`](results/hack_audit.md).
+   Two of those attacks (an always-equal return object, and a forged verdict
+   via a stack walk) beat the earlier grader; both now score 0.
 
 **Found by training, then fixed.** RL optimises exactly what the grader checks,
-so the first training runs doubled as a grader audit:
+so the training runs doubled as a grader audit. Eight flaws were found this
+way (full table in `REPORT.md` §4.2); the main ones:
 
 | Finding | Fix |
 |---|---|
@@ -212,8 +263,9 @@ so the first training runs doubled as a grader audit:
 
 * Training reads a YAML config; swap `model:` for any HF causal LM. Profiles:
   `laptop_qwen05b`, `laptop_qwen25_1_5b`, `laptop_qwen25_coder_1_5b`,
-  `final_coder15_mixed` (procedural + SecCodePLT, the final run) and
-  `server_a100`. Add imported tasks to any profile with `data.sources`.
+  `final_coder15_mixed` (procedural + SecCodePLT) and `hardened_coder15_mixed`
+  (the same run on the hardened grader). Add imported tasks to any profile with
+  `data.sources`. Only these 0.5B and 1.5B LoRA profiles have been run.
 * **RTX 4060 (8 GB):** Qwen2.5-Coder-1.5B + LoRA + bf16 + gradient
   checkpointing with micro-batch 1–2 (micro-batch 4 runs out of memory on long
   answers), HF generation (no vLLM), ~20 s per step. The grader runs entirely
@@ -221,32 +273,41 @@ so the first training runs doubled as a grader audit:
 * **System RAM matters on Windows:** a run needs several GB free. Launch long
   runs in their own console (`scripts/final_pipeline.ps1` runs baseline evals,
   training with auto-resume from checkpoints, and trained evals end to end).
-* **Server:** flip `use_vllm: true`, raise `num_generations`, disable LoRA for
-  full fine-tuning, and switch to `reward.mode: binary`.
 * Windows: Docker Desktop (WSL2) builds the container; the grader itself is pure
   cross-platform Python and needs no Docker to train or evaluate.
 
 ## Results
 
-Final run: Qwen2.5-Coder-1.5B-Instruct + LoRA, 400 GRPO steps on 1,222 tasks
-(19 CWEs; `configs/final_coder15_mixed.yaml`), one RTX 4060 laptop GPU, about
-2h20m. pass@1 on held-out tasks, base vs trained, paired over the same tasks
-(`scripts/compare_evals.py`, files in `results/compare_final_*.md`):
+Hardened run: Qwen2.5-Coder-1.5B-Instruct + LoRA (r = 16, 18.5M trainable
+parameters, about 1.2% of the model), 400 GRPO steps on 1,222 tasks (19 CWEs;
+`configs/hardened_coder15_mixed.yaml`), one RTX 4060 laptop GPU, 2 h 19 min.
+pass@1 on held-out tasks, paired over the same tasks
+(`scripts/compare_evals.py`, files in `results/compare_hardened_*.md`):
 
 | Held-out test set | Base | Trained | Change (95% CI) |
 |---|---|---|---|
-| Procedural tasks (200, 8 CWEs, no hints) | 33.9% | 59.8% | +25.9 pts (+21.1, +30.7) |
-| SecCodePLT test split (110, 15 CWEs) | 17.5% | 23.4% | +5.9 pts (+0.7, +11.4) |
-| CWEval (16, independent tests) | 32.8% | 32.8% | 0.0 pts (−14.8, +16.4) |
+| Procedural tasks (200, 8 CWEs, no hints) | 33.4% | 61.0% | +27.6 pts (+22.6, +32.9) |
+| SecCodePLT test split (110, 15 CWEs) | 17.5% | 22.7% | +5.2 pts (+0.2, +10.2) |
+| CWEval (16, independent tests) | 32.8% | 35.9% | +3.1 pts (−10.9, +18.8) |
 
-What it shows: large gains on the task distribution the model trained on
-(insecure randomness 20% → 94%, unsafe deserialization 34% → 99%, SSRF
-45% → 79%, SQL injection 70% → 100%), no measurable transfer to an
-independently written benchmark, and no progress on categories where the base
-model never succeeded (code injection, password hashing). Path traversal
-regressed (12% → 4% with the corrected grader) because a Windows short-path
-artifact failed legitimate fixes during training; the grader is now fixed.
-Reproduce the numbers with `scripts/final_pipeline.ps1`.
+**Per category (procedural):** insecure randomness 19% → 100%, unsafe
+deserialization 32% → 99%, SQL injection 70% → 100%, SSRF 45% → 82%. No
+progress where the base model never succeeded: code injection and password
+hashing stayed at 0%, path traversal 3% → 7%.
+
+**Training curve:** held-out accuracy at every checkpoint (step 0 → 400):
+33.4, 38.9, 30.2, 50.5, 57.8, 60.8, 59.3, 60.4, 61.0%. It plateaus after about
+250 steps and never falls, so the run did not over-fit. Plots:
+`python scripts/plot_training.py` → `results/training_plots/`.
+
+**Frontier comparison:** Claude Opus 5.5, on the same tasks and grader, scored
+100% / 89.1% / 100% (table at the top). All 12 of its SecCodePLT failures were
+checked by hand. 6 were correct fixes our static guard rejected, 5 were
+ambiguous benchmark tests, and 1 was a real model mistake (`REPORT.md` §7.5).
+
+**Honest limits:** one training seed per run, no transfer to CWEval, and a
+procedural task set that frontier models saturate. `REPORT.md` §10 lists
+everything that went wrong.
 
 ## Extending it
 
@@ -273,6 +334,8 @@ that validate in this grader. Credit the source in `NOTICE`.
   HF_HUB_OFFLINE=1 python scripts/train_grpo.py --config configs/laptop_qwen05b.yaml
   ```
 
+* **Anthropic SDK raises `APIConnectionError` although the network is fine** —
+  an old `brotli` package cannot decode the response. `pip install "brotli>=1.2"`.
 * **`bitsandbytes` errors on Windows** — keep `load_in_4bit: false` (the default)
   and use LoRA + bf16; 4-bit is optional and mainly for larger models on Linux.
 * **OOM on 8 GB** — lower `num_generations` and `max_completion_length`, or move
@@ -284,18 +347,23 @@ that validate in this grader. Credit the source in `NOTICE`.
 cybersec_env/            # the package (framework-light core)
   tasks/                 # procedural CWE task families, imported-task loader, registry, static rubric
   data/imported/         # validated SecCodePLT + CWEval tasks and their import reports
+  data/codebase_tasks/   # verified repository-level tasks, one JSON spec each
+  data/advisories/       # the 8,186-advisory candidate index
+  codebase/              # repository-level container grader
   guard.py               # AST denylist (anti-reward-hacking)
-  _grade_worker.py       # sandboxed grading subprocess
+  sandbox.py             # bubblewrap OS-jail command builder
+  _grade_worker.py       # isolated grading worker (fork trust-split)
   verifier.py            # guard → exec → probes → reward
   reward.py  extract.py  # reward shaping; code extraction
   environment.py models.py client.py   # OpenEnv env/action/observation/client
   server/                # FastAPI app, Dockerfile, serve requirements
   dataset.py evaluation.py trl_reward.py   # HF dataset, eval harness, TRL reward
 scripts/                 # train_grpo, evaluate, compare_evals, probe_report, hack_audit,
-                         # import_seccodeplt, import_cweval, final_pipeline.ps1, ...
-configs/                 # laptop and server profiles, final_coder15_mixed
-tests/                   # 103 pytest tests (imported tasks re-checked on a fixed sample)
-results/                 # hack_audit.{json,md} and eval artifacts
+                         # mutation_test, frontier_calibration, import_*, collect_advisories,
+                         # build/verify/harvest/enrich/finalize_codebase_tasks, plot_training, ...
+configs/                 # laptop profiles, final_coder15_mixed, hardened_coder15_mixed
+tests/                   # 123 pytest tests, including reward-hack regressions
+results/                 # audits, evals, comparisons, training_plots/, frontier/
 ```
 
 ## License & attribution

@@ -1,0 +1,164 @@
+{
+  "id": "GHSA-v542-8q9x-cffc",
+  "aliases": [
+    "CVE-2020-35681",
+    "PYSEC-2021-113"
+  ],
+  "cwes": [
+    "CWE-200"
+  ],
+  "severity": "HIGH",
+  "package": "channels",
+  "repo": {
+    "owner": "django",
+    "name": "channels",
+    "url": "https://github.com/django/channels"
+  },
+  "base_commit": "945b8ad0196136dc4265eba8ff70f12d5f02520f",
+  "fix_commit": "e85874d9630474986a6937430eac52db79a2a022",
+  "python_requires": ">=3.6",
+  "changed_source_files": [
+    "channels/http.py",
+    "channels/staticfiles.py"
+  ],
+  "changed_test_files": [
+    "tests/test_http.py",
+    "tests/test_staticfiles.py"
+  ],
+  "source_patch": "diff --git a/channels/http.py b/channels/http.py\nindex c55bf9b..c9ff597 100644\n--- a/channels/http.py\n+++ b/channels/http.py\n@@ -188,8 +188,6 @@ class AsgiHandler(base.BaseHandler):\n                 \"The AsgiHandler can only handle HTTP connections, not %s\"\n                 % scope[\"type\"]\n             )\n-        self.scope = scope\n-        self.send = async_to_sync(send)\n \n         # Receive the HTTP request body as a stream object.\n         try:\n@@ -197,7 +195,7 @@ class AsgiHandler(base.BaseHandler):\n         except RequestAborted:\n             return\n         # Launch into body handling (and a synchronous subthread).\n-        await self.handle(body_stream)\n+        await self.handle(scope, async_to_sync(send), body_stream)\n \n     async def read_body(self, receive):\n         \"\"\"Reads a HTTP body from an ASGI connection.\"\"\"\n@@ -220,19 +218,19 @@ class AsgiHandler(base.BaseHandler):\n         return body_file\n \n     @sync_to_async\n-    def handle(self, body):\n+    def handle(self, scope, send, body):\n         \"\"\"\n         Synchronous message processing.\n         \"\"\"\n         # Set script prefix from message root_path, turning None into empty string\n-        script_prefix = self.scope.get(\"root_path\", \"\") or \"\"\n+        script_prefix = scope.get(\"root_path\", \"\") or \"\"\n         if settings.FORCE_SCRIPT_NAME:\n             script_prefix = settings.FORCE_SCRIPT_NAME\n         set_script_prefix(script_prefix)\n-        signals.request_started.send(sender=self.__class__, scope=self.scope)\n+        signals.request_started.send(sender=self.__class__, scope=scope)\n         # Run request through view system\n         try:\n-            request = self.request_class(self.scope, body)\n+            request = self.request_class(scope, body)\n         except UnicodeDecodeError:\n             logger.warning(\n                 \"Bad Request (UnicodeDecodeError)\",\n@@ -255,7 +253,7 @@ class AsgiHandler(base.BaseHandler):\n                 response.block_size = 1024 * 512\n         # Transform response into messages, which we yield back to caller\n         for response_message in self.encode_response(response):\n-            self.send(response_message)\n+            send(response_message)\n         # Close the response now we're done with it\n         response.close()\n \ndiff --git a/channels/staticfiles.py b/channels/staticfiles.py\nindex 73c7dfb..f625976 100644\n--- a/channels/staticfiles.py\n+++ b/channels/staticfiles.py\n@@ -51,11 +51,15 @@ class StaticFilesHandler(AsgiHandler):\n \n     # TODO: Review hierarchy here. Do we NEED to inherit BaseHandler, AsgiHandler?\n \n+    async def __call__(self, scope, receive, send):\n+        self.static_base_url = scope[\"static_base_url\"][2]\n+        return await super().__call__(scope, receive, send)\n+\n     def file_path(self, url):\n         \"\"\"\n         Returns the relative path to the media file on disk for the given URL.\n         \"\"\"\n-        relative_url = url[len(self.scope[\"static_base_url\"][2]) :]\n+        relative_url = url[len(self.static_base_url) :]\n         return url2pathname(relative_url)\n \n     def serve(self, request):\n",
+  "test_patch": "diff --git a/tests/test_http.py b/tests/test_http.py\nindex d4feae2..68ec311 100644\n--- a/tests/test_http.py\n+++ b/tests/test_http.py\n@@ -351,6 +351,35 @@ async def test_handler_body_ignore_extra():\n     assert body_stream.read() == b\"chunk one\"\n \n \n+@pytest.mark.django_db\n+@pytest.mark.asyncio\n+@pytest.mark.filterwarnings(\"ignore::DeprecationWarning\")\n+async def test_handler_concurrent_requests():\n+    \"\"\"\n+    Tests request handling ignores anything after more_body: False\n+    \"\"\"\n+    scope = {\"type\": \"http\", \"http_version\": \"1.1\", \"method\": \"GET\", \"path\": \"/test/\"}\n+    handler = MockHandler()\n+    comm_1 = ApplicationCommunicator(handler, {**scope})\n+    comm_2 = ApplicationCommunicator(handler, {**scope})\n+\n+    request_1 = comm_1.send_input(\n+        {\"type\": \"http.request\", \"body\": b\"request 1\", \"more_body\": False}\n+    )\n+    request_2 = comm_2.send_input(\n+        {\"type\": \"http.request\", \"body\": b\"request 2\", \"more_body\": False}\n+    )\n+\n+    await request_1\n+    await request_2\n+\n+    await comm_1.receive_output(1)  # response start\n+    await comm_1.receive_output(1)  # response body\n+\n+    await comm_2.receive_output(1)  # response start\n+    await comm_2.receive_output(1)  # response body\n+\n+\n @pytest.mark.django_db(transaction=True)\n @pytest.mark.asyncio\n async def test_sessions():\ndiff --git a/tests/test_staticfiles.py b/tests/test_staticfiles.py\nindex 61afea4..126d39b 100644\n--- a/tests/test_staticfiles.py\n+++ b/tests/test_staticfiles.py\n@@ -1,6 +1,6 @@\n import pytest\n \n-from channels.staticfiles import StaticFilesWrapper\n+from channels.staticfiles import StaticFilesHandler, StaticFilesWrapper\n \n \n @pytest.fixture(autouse=True)\n@@ -99,3 +99,27 @@ def test_is_single_callable():\n         \"StaticFilesWrapper should be recognized as a single callable by \"\n         \"asgiref compatibility tools\"\n     )\n+\n+\n+@pytest.mark.asyncio\n+async def test_staticfiles_handler_can_generate_file_path():\n+    \"\"\"\n+    StaticFilesHandler.file_path must not rely on scope being assigned to self.\n+    \"\"\"\n+\n+    class MockedHandler(StaticFilesHandler):\n+        async def __call__(self, scope, receive, send):\n+            # Equivalent setUp from real __call__.\n+            request = self.request_class(scope, \"\")\n+            self.static_base_url = scope[\"static_base_url\"][2]\n+            # Method under test.\n+            return self.file_path(request.path)\n+\n+    wrapper = StaticFilesWrapper(\n+        MockApplication(\"application\"), staticfiles_handler=MockedHandler\n+    )\n+    scope = request_for_path(\"/static/image.png\")\n+    scope[\"method\"] = \"GET\"\n+    assert (\n+        await wrapper(scope, None, None) == \"/image.png\"\n+    ), \"StaticFilesWrapper should serve paths under the STATIC_URL path\"\n",
+  "summary": "Django Channels leakage of session identifiers using legacy AsgiHandler",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `channels` has a security vulnerability (CWE-200). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.test_http::test_handler_concurrent_requests",
+    "tests.test_staticfiles::test_staticfiles_handler_can_generate_file_path"
+  ],
+  "p2p_tests": [
+    "tests.test_http.MiddlewareTests::test_middleware_caching",
+    "tests.test_http.RequestTests::test_basic",
+    "tests.test_http.RequestTests::test_extended",
+    "tests.test_http.RequestTests::test_latin1_headers",
+    "tests.test_http.RequestTests::test_post",
+    "tests.test_http.RequestTests::test_post_files",
+    "tests.test_http.RequestTests::test_reading_body_after_stream_raises",
+    "tests.test_http.RequestTests::test_script_name",
+    "tests.test_http.RequestTests::test_size_check_ignores_files",
+    "tests.test_http.RequestTests::test_size_exceeded",
+    "tests.test_http.RequestTests::test_stream",
+    "tests.test_http::test_handler_basic",
+    "tests.test_http::test_handler_body_ignore_extra",
+    "tests.test_http::test_handler_body_multiple",
+    "tests.test_http::test_handler_body_single",
+    "tests.test_http::test_muliple_sessions",
+    "tests.test_http::test_sessions",
+    "tests.test_staticfiles::test_is_single_callable",
+    "tests.test_staticfiles::test_staticfiles_wrapper_calls_application_for_non_http_paths",
+    "tests.test_staticfiles::test_staticfiles_wrapper_calls_application_for_non_static_http_requests",
+    "tests.test_staticfiles::test_staticfiles_wrapper_calls_application_if_static_url_has_host",
+    "tests.test_staticfiles::test_staticfiles_wrapper_serves_static_http_requests"
+  ],
+  "test_files": [
+    "tests/test_http.py",
+    "tests/test_staticfiles.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 22,
+  "n_after_pass": 24,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-v542-8q9x-cffc",
+      "summary": "Django Channels leakage of session identifiers using legacy AsgiHandler",
+      "details": "Django Channels 3.x before 3.0.3 allows remote attackers to obtain sensitive information from a different request scope. The legacy channels.http.AsgiHandler class, used for handling HTTP type requests in an ASGI environment prior to Django 3.0, did not correctly separate request scopes in Channels 3.0. In many cases this would result in a crash but, with correct timing, responses could be sent to the wrong client, resulting in potential leakage of session identifiers and other sensitive data. Note that this affects only the legacy Channels provided class, and not Django's similar ASGIHandler, available from Django 3.0.",
+      "aliases": [
+        "CVE-2020-35681",
+        "PYSEC-2021-113"
+      ],
+      "published": "2021-03-19T21:29:02Z",
+      "modified": "2024-09-13T18:01:43.817869Z",
+      "severity": "HIGH",
+      "cwe_ids": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "package": "channels",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "3.0.0"
+                },
+                {
+                  "fixed": "3.0.3"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-35681"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/channels/commit/e85874d9630474986a6937430eac52db79a2a022"
+        },
+        {
+          "type": "WEB",
+          "url": "https://channels.readthedocs.io/en/stable/releases/3.0.3.html"
+        },
+        {
+          "type": "WEB",
+          "url": "https://channels.readthedocs.io/en/stable/releases/index.html"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-v542-8q9x-cffc"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/django/channels"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/channels/releases"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/channels/PYSEC-2021-113.yaml"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-v542-8q9x-cffc",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "e85874d9630474986a6937430eac52db79a2a022",
+      "authored_at": "2020-12-24T17:42:43+08:00",
+      "committed_at": "2020-12-24T10:42:43+01:00",
+      "message": "Updated channels.http.AsgiHandler to not mutate state. (#1581)\n\n* Don't mutate AsgiHandler state in __call__(). Fixes #1578\n* Added a test that fails without the previous commit\n* Updated StaticFilesHandler to not rely on self.scope.\n\nCo-authored-by: Alex Hill <<email>>\nCo-authored-by: Carlton Gibson <<email>>",
+      "url": "https://github.com/django/channels/commit/e85874d9630474986a6937430eac52db79a2a022"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 1581,
+        "url": "https://github.com/django/channels/pull/1581",
+        "title": "Don't mutate AsgiHandler state in __call__().",
+        "body": "Fixes #1578",
+        "merged_at": "2020-12-24T09:42:44Z",
+        "merge_commit_sha": "e85874d9630474986a6937430eac52db79a2a022"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T19:27:50+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

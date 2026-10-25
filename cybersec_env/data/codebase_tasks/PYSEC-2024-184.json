@@ -103,5 +103,104 @@
   ],
   "python": "3.8",
   "n_before_pass": 51,
-  "n_after_pass": 57
+  "n_after_pass": 57,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2024-184",
+      "summary": "",
+      "details": "A local file inclusion vulnerability exists in the JSON component of gradio-app/gradio version 4.25. The vulnerability arises from improper input validation in the `postprocess()` function within `gradio/components/json_component.py`, where a user-controlled string is parsed as JSON. If the parsed JSON object contains a `path` key, the specified file is moved to a temporary directory, making it possible to retrieve it later via the `/file=..` endpoint. This issue is due to the `processing_utils.move_files_to_cache()` function traversing any object passed to it, looking for a dictionary with a `path` key, and then copying the specified file to a temporary directory. The vulnerability can be exploited by an attacker to read files on the remote system, posing a significant security risk.",
+      "aliases": [
+        "CVE-2024-4941",
+        "GHSA-6v6g-j5fq-hpvw"
+      ],
+      "published": "2024-06-06T18:15:18Z",
+      "modified": "2026-06-10T17:01:21.040668281Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "gradio",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/gradio-app/gradio",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "ee1e2942e0a1ae84a08a05464e41c8108a03fa9c"
+                },
+                {
+                  "fixed": "ee1e2942e0a1ae84a08a05464e41c8108a03fa9c"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "4.31.4"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "EVIDENCE",
+          "url": "https://huntr.com/bounties/39889ce1-298d-4568-aecd-7ae40c2ca58e"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/gradio-app/gradio/commit/ee1e2942e0a1ae84a08a05464e41c8108a03fa9c"
+        },
+        {
+          "type": "WEB",
+          "url": "https://huntr.com/bounties/39889ce1-298d-4568-aecd-7ae40c2ca58e"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/advisories/GHSA-6v6g-j5fq-hpvw"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2024-184",
+      "related_advisories": [
+        {
+          "id": "GHSA-6v6g-j5fq-hpvw",
+          "summary": "Local file inclusion in gradio",
+          "details": "A local file inclusion vulnerability exists in the JSON component of gradio-app/gradio and was discovered in version 4.25. The vulnerability arises from improper input validation in the `postprocess()` function within `gradio/components/json_component.py`, where a user-controlled string is parsed as JSON. If the parsed JSON object contains a `path` key, the specified file is moved to a temporary directory, making it possible to retrieve it later via the `/file=..` endpoint. This issue is due to the `processing_utils.move_files_to_cache()` function traversing any object passed to it, looking for a dictionary with a `path` key, and then copying the specified file to a temporary directory. The vulnerability can be exploited by an attacker to read files on the remote system, posing a significant security risk.",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-6v6g-j5fq-hpvw"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "ee1e2942e0a1ae84a08a05464e41c8108a03fa9c",
+      "authored_at": "2024-05-15T17:38:50-04:00",
+      "committed_at": "2024-05-15T21:38:50Z",
+      "message": "Ensure JSON component outputs handled properly in postprocess (#8292)\n\n* Add code\n\n* Json postprocess\n\n* add changeset\n\n* add changeset\n\n* Fix json tests\n\n* fix flag\n\n* Address comments\n\n---------\n\nCo-authored-by: gradio-pr-bot <<email>>",
+      "url": "https://github.com/gradio-app/gradio/commit/ee1e2942e0a1ae84a08a05464e41c8108a03fa9c"
+    },
+    "pull_requests": [
+      {
+        "status": "ok",
+        "number": 8292,
+        "url": "https://github.com/gradio-app/gradio/pull/8292",
+        "title": "Ensure JSON component outputs handled properly in postprocess",
+        "body": "## Description\r\n\r\n* Makes sure json component outputs do not get moved to cache\r\n* `EventData` instances must only reference data in the cache\r\n\r\n## 🎯 PRs Should Target Issues\r\n\r\nBefore your create a PR, please check to see if there is [an existing issue](https://github.com/gradio-app/gradio/issues) for this change. If not, please create an issue before you create this PR, unless the fix is very small. \r\n\r\nNot adhering to this guideline will result in the PR being closed. \r\n\r\n## Tests\r\n\r\n1. PRs will only be merged if tests pass on CI. To run the tests locally, please set up [your Gradio environment locally](https://github.com/gradio-app/gradio/blob/main/CONTRIBUTING.md) and run the tests: `bash scripts/run_all_tests.sh`\r\n\r\n2. You may need to run the linters: `bash scripts/format_backend.sh` and `bash scripts/format_frontend.sh`\r\n  \r\n",
+        "merged_at": "2024-05-15T21:38:51Z",
+        "merge_commit_sha": "ee1e2942e0a1ae84a08a05464e41c8108a03fa9c"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:41:10+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
 }

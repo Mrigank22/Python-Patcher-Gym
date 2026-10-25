@@ -1,0 +1,191 @@
+{
+  "id": "PYSEC-2019-68",
+  "aliases": [],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "waitress",
+  "repo": {
+    "owner": "Pylons",
+    "name": "waitress",
+    "url": "https://github.com/Pylons/waitress"
+  },
+  "base_commit": "f11093a6b3240fc26830b6111e826128af7771c3",
+  "fix_commit": "11d9e138125ad46e951027184b13242a3c1de017",
+  "python_requires": "",
+  "changed_source_files": [
+    "setup.py",
+    "waitress/parser.py",
+    "waitress/rfc7230.py",
+    "waitress/utilities.py"
+  ],
+  "changed_test_files": [
+    "waitress/tests/test_parser.py"
+  ],
+  "source_patch": "diff --git a/setup.py b/setup.py\nindex 96846d1..15e11d5 100644\n--- a/setup.py\n+++ b/setup.py\n@@ -34,7 +34,7 @@ testing_extras = [\n \n setup(\n     name=\"waitress\",\n-    version=\"1.4.0\",\n+    version=\"1.4.1\",\n     author=\"Zope Foundation and Contributors\",\n     author_email=\"zope-dev@zope.org\",\n     maintainer=\"Pylons Project\",\ndiff --git a/waitress/parser.py b/waitress/parser.py\nindex dd591f2..8b07dd6 100644\n--- a/waitress/parser.py\n+++ b/waitress/parser.py\n@@ -29,6 +29,7 @@ from waitress.utilities import (\n     ServerNotImplemented,\n     find_double_newline,\n )\n+from .rfc7230 import HEADER_FIELD\n \n \n class ParsingError(Exception):\n@@ -38,7 +39,6 @@ class ParsingError(Exception):\n class TransferEncodingNotImplemented(Exception):\n     pass\n \n-\n class HTTPRequestParser(object):\n     \"\"\"A structure that collects the HTTP request.\n \n@@ -208,26 +208,27 @@ class HTTPRequestParser(object):\n \n         headers = self.headers\n         for line in lines:\n-            index = line.find(b\":\")\n-            if index > 0:\n-                key = line[:index]\n-\n-                if key != key.strip():\n-                    raise ParsingError(\"Invalid whitespace after field-name\")\n-\n-                if b\"_\" in key:\n-                    continue\n-                value = line[index + 1 :].strip()\n-                key1 = tostr(key.upper().replace(b\"-\", b\"_\"))\n-                # If a header already exists, we append subsequent values\n-                # seperated by a comma. Applications already need to handle\n-                # the comma seperated values, as HTTP front ends might do\n-                # the concatenation for you (behavior specified in RFC2616).\n-                try:\n-                    headers[key1] += tostr(b\", \" + value)\n-                except KeyError:\n-                    headers[key1] = tostr(value)\n-            # else there's garbage in the headers?\n+            header = HEADER_FIELD.match(line)\n+\n+            if not header:\n+                raise ParsingError(\"Invalid header\")\n+\n+            key, value = header.group('name', 'value')\n+\n+            if b\"_\" in key:\n+                # TODO(xistence): Should we drop this request instead?\n+                continue\n+\n+            value = value.strip()\n+            key1 = tostr(key.upper().replace(b\"-\", b\"_\"))\n+            # If a header already exists, we append subsequent values\n+            # seperated by a comma. Applications already need to handle\n+            # the comma seperated values, as HTTP front ends might do\n+            # the concatenation for you (behavior specified in RFC2616).\n+            try:\n+                headers[key1] += tostr(b\", \" + value)\n+            except KeyError:\n+                headers[key1] = tostr(value)\n \n         # command, uri, version will be bytes\n         command, uri, version = crack_first_line(first_line)\n@@ -352,6 +353,9 @@ def get_header_lines(header):\n     r = []\n     lines = header.split(b\"\\r\\n\")\n     for line in lines:\n+        if not line:\n+            continue\n+\n         if b\"\\r\" in line or b\"\\n\" in line:\n             raise ParsingError('Bare CR or LF found in header line \"%s\"' % tostr(line))\n \ndiff --git a/waitress/rfc7230.py b/waitress/rfc7230.py\nnew file mode 100644\nindex 0000000..a9f047c\n--- /dev/null\n+++ b/waitress/rfc7230.py\n@@ -0,0 +1,44 @@\n+\"\"\"\n+This contains a bunch of RFC7230 definitions and regular expressions that are\n+needed to properly parse HTTP messages.\n+\"\"\"\n+\n+import re\n+\n+from .compat import tobytes\n+\n+WS = \"[ \\t]\"\n+OWS = WS + \"{0,}?\"\n+RWS = WS + \"{1,}?\"\n+BWS = OWS\n+\n+# RFC 7230 Section 3.2.6 \"Field Value Components\":\n+# tchar          = \"!\" / \"#\" / \"$\" / \"%\" / \"&\" / \"'\" / \"*\"\n+#                / \"+\" / \"-\" / \".\" / \"^\" / \"_\" / \"`\" / \"|\" / \"~\"\n+#                / DIGIT / ALPHA\n+# obs-text      = %x80-FF\n+TCHAR = r\"[!#$%&'*+\\-.^_`|~0-9A-Za-z]\"\n+OBS_TEXT = r\"\\x80-\\xff\"\n+\n+TOKEN = TCHAR + \"{1,}\"\n+\n+# RFC 5234 Appendix B.1 \"Core Rules\":\n+# VCHAR         =  %x21-7E\n+#                  ; visible (printing) characters\n+VCHAR = r\"\\x21-\\x7e\"\n+\n+# header-field   = field-name \":\" OWS field-value OWS\n+# field-name     = token\n+# field-value    = *( field-content / obs-fold )\n+# field-content  = field-vchar [ 1*( SP / HTAB ) field-vchar ]\n+# field-vchar    = VCHAR / obs-text\n+\n+FIELD_VCHAR = \"[\" + VCHAR + OBS_TEXT + \"]\"\n+FIELD_CONTENT = FIELD_VCHAR + \"(\" + RWS + FIELD_VCHAR + \"){0,}\"\n+FIELD_VALUE = \"(\" + FIELD_CONTENT + \"){0,}\"\n+\n+HEADER_FIELD = re.compile(\n+    tobytes(\n+        \"^(?P<name>\" + TOKEN + \"):\" + OWS + \"(?P<value>\" + FIELD_VALUE + \")\" + OWS + \"$\"\n+    )\n+)\ndiff --git a/waitress/utilities.py b/waitress/utilities.py\nindex 0336897..556bed2 100644\n--- a/waitress/utilities.py\n+++ b/waitress/utilities.py\n@@ -22,6 +22,8 @@ import re\n import stat\n import time\n \n+from .rfc7230 import OBS_TEXT, VCHAR\n+\n logger = logging.getLogger(\"waitress\")\n queue_logger = logging.getLogger(\"waitress.queue\")\n \n@@ -63,6 +65,7 @@ short_day_reg = group(join(short_days, \"|\"))\n long_day_reg = group(join(long_days, \"|\"))\n \n daymap = {}\n+\n for i in range(7):\n     daymap[short_days[i]] = i\n     daymap[long_days[i]] = i\n@@ -85,6 +88,7 @@ months = [\n ]\n \n monmap = {}\n+\n for i in range(12):\n     monmap[months[i]] = i + 1\n \n@@ -113,6 +117,7 @@ rfc822_reg = re.compile(rfc822_date)\n \n def unpack_rfc822(m):\n     g = m.group\n+\n     return (\n         int(g(4)),  # year\n         monmap[g(3)],  # month\n@@ -142,8 +147,10 @@ rfc850_reg = re.compile(rfc850_date)\n def unpack_rfc850(m):\n     g = m.group\n     yr = g(4)\n+\n     if len(yr) == 2:\n         yr = \"19\" + yr\n+\n     return (\n         int(yr),  # year\n         monmap[g(3)],  # month\n@@ -180,6 +187,7 @@ monthname = [\n \n def build_http_date(when):\n     year, month, day, hh, mm, ss, wd, y, z = time.gmtime(when)\n+\n     return \"%s, %02d %3s %4d %02d:%02d:%02d GMT\" % (\n         weekdayname[wd],\n         day,\n@@ -194,28 +202,31 @@ def build_http_date(when):\n def parse_http_date(d):\n     d = d.lower()\n     m = rfc850_reg.match(d)\n+\n     if m and m.end() == len(d):\n         retval = int(calendar.timegm(unpack_rfc850(m)))\n     else:\n         m = rfc822_reg.match(d)\n+\n         if m and m.end() == len(d):\n             retval = int(calendar.timegm(unpack_rfc822(m)))\n         else:\n             return 0\n+\n     return retval\n \n \n # RFC 5234 Appendix B.1 \"Core Rules\":\n # VCHAR         =  %x21-7E\n #                  ; visible (printing) characters\n-vchar_re = \"\\x21-\\x7e\"\n+vchar_re = VCHAR\n \n # RFC 7230 Section 3.2.6 \"Field Value Components\":\n # quoted-string = DQUOTE *( qdtext / quoted-pair ) DQUOTE\n # qdtext        = HTAB / SP /%x21 / %x23-5B / %x5D-7E / obs-text\n # obs-text      = %x80-FF\n # quoted-pair   = \"\\\" ( HTAB / SP / VCHAR / obs-text )\n-obs_text_re = \"\\x80-\\xff\"\n+obs_text_re = OBS_TEXT\n \n # The '\\\\' between \\x5b and \\x5d is needed to escape \\x5d (']')\n qdtext_re = \"[\\t \\x21\\x23-\\x5b\\\\\\x5d-\\x7e\" + obs_text_re + \"]\"\n",
+  "test_patch": "diff --git a/waitress/tests/test_parser.py b/waitress/tests/test_parser.py\nindex 1a95e23..8d42600 100644\n--- a/waitress/tests/test_parser.py\n+++ b/waitress/tests/test_parser.py\n@@ -308,10 +308,93 @@ class TestHTTPRequestParser(unittest.TestCase):\n         try:\n             self.parser.parse_header(data)\n         except ParsingError as e:\n-            self.assertIn(\"Invalid whitespace after field-name\", e.args[0])\n+            self.assertIn(\"Invalid header\", e.args[0])\n         else:  # pragma: nocover\n             self.assertTrue(False)\n \n+    def test_parse_header_invalid_whitespace_vtab(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo:\\x0bbar\\r\\n\"\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Invalid header\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n+\n+    def test_parse_header_invalid_no_colon(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar\\r\\nnotvalid\\r\\n\"\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Invalid header\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n+\n+    def test_parse_header_invalid_folding_spacing(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar\\r\\n\\t\\x0bbaz\\r\\n\"\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Invalid header\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n+\n+    def test_parse_header_invalid_chars(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar\\r\\n\\foo: \\x0bbaz\\r\\n\"\n+        try:\n+            self.parser.parse_header(data)\n+        except ParsingError as e:\n+            self.assertIn(\"Invalid header\", e.args[0])\n+        else:  # pragma: nocover\n+            self.assertTrue(False)\n+\n+    def test_parse_header_empty(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar\\r\\nempty:\\r\\n\"\n+        self.parser.parse_header(data)\n+\n+        self.assertIn(\"EMPTY\", self.parser.headers)\n+        self.assertIn(\"FOO\", self.parser.headers)\n+        self.assertEqual(self.parser.headers[\"EMPTY\"], \"\")\n+        self.assertEqual(self.parser.headers[\"FOO\"], \"bar\")\n+\n+    def test_parse_header_multiple_values(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar, whatever, more, please, yes\\r\\n\"\n+        self.parser.parse_header(data)\n+\n+        self.assertIn(\"FOO\", self.parser.headers)\n+        self.assertEqual(self.parser.headers[\"FOO\"], \"bar, whatever, more, please, yes\")\n+\n+    def test_parse_header_multiple_values_header_folded(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar, whatever,\\r\\n more, please, yes\\r\\n\"\n+        self.parser.parse_header(data)\n+\n+        self.assertIn(\"FOO\", self.parser.headers)\n+        self.assertEqual(self.parser.headers[\"FOO\"], \"bar, whatever, more, please, yes\")\n+\n+    def test_parse_header_multiple_values_header_folded_multiple(self):\n+        from waitress.parser import ParsingError\n+\n+        data = b\"GET /foobar HTTP/1.1\\r\\nfoo: bar, whatever,\\r\\n more\\r\\nfoo: please, yes\\r\\n\"\n+        self.parser.parse_header(data)\n+\n+        self.assertIn(\"FOO\", self.parser.headers)\n+        self.assertEqual(self.parser.headers[\"FOO\"], \"bar, whatever, more, please, yes\")\n+\n+\n \n class Test_split_uri(unittest.TestCase):\n     def _callFUT(self, uri):\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `waitress` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_chars",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_folding_spacing",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_no_colon",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_whitespace",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_invalid_whitespace_vtab"
+  ],
+  "p2p_tests": [
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_close_with_body_rcv",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_close_with_no_body_rcv",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_get_body_stream_None",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_get_body_stream_nonNone",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_11_expect_continue",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_11_te_chunked",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_bad_content_length",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_connection_close",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_cr_only",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_empty",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_extra_lf_in_first_line",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_extra_lf_in_header",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_gardenpath",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_lf_only",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_multiple_content_length",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_multiple_values",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_multiple_values_header_folded",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_multiple_values_header_folded_multiple",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_no_cr_in_headerplus",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_transfer_encoding_invalid",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_parse_header_transfer_encoding_invalid_multiple",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_already_completed",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_bad_host_header",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_bad_transfer_encoding",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_body_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_chunked_completed_sets_content_length",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_cl_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_error_from_parser",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_get_no_headers",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_headers_too_large",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_no_doublecr",
+    "waitress.tests.test_parser.TestHTTPRequestParser::test_received_nonsense_nothing",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testComplexGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testDuplicateHeaders",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testProxyGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testSimpleGET",
+    "waitress.tests.test_parser.TestHTTPRequestParserIntegration::testSpoofedHeadersDropped",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_lowercase_method",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_matchok",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_missing_version",
+    "waitress.tests.test_parser.Test_crack_first_line::test_crack_first_line_nomatch",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_folded",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_malformed",
+    "waitress.tests.test_parser.Test_get_header_lines::test_get_header_lines_tabbed",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path_query",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_path_query_fragment",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unicode_error_raises_parsing_error",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unquoting_needed",
+    "waitress.tests.test_parser.Test_split_uri::test_split_uri_unquoting_unneeded",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_https",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_fragment",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_query",
+    "waitress.tests.test_parser.Test_split_uri::test_split_url_with_query_empty"
+  ],
+  "test_files": [
+    "waitress/tests/test_parser.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 55,
+  "n_after_pass": 60,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2019-68",
+      "summary": "",
+      "details": "In Waitress through version 1.4.0, if a proxy server is used in front of waitress, an invalid request may be sent by an attacker that bypasses the front-end and is parsed differently by waitress leading to a potential for HTTP request smuggling. Specially crafted requests containing special whitespace characters in the Transfer-Encoding header would get parsed by Waitress as being a chunked request, but a front-end server would use the Content-Length instead as the Transfer-Encoding header is considered invalid due to containing invalid characters. If a front-end server does HTTP pipelining to a backend Waitress server this could lead to HTTP request splitting which may lead to potential cache poisoning or unexpected information disclosure. This issue is fixed in Waitress 1.4.1 through more strict HTTP field validation.",
+      "aliases": [],
+      "published": "2019-12-26T17:15:00Z",
+      "modified": "2023-03-14T07:01:09.374789Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "waitress",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/Pylons/waitress",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "11d9e138125ad46e951027184b13242a3c1de017"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1.4.1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/Pylons/waitress/commit/11d9e138125ad46e951027184b13242a3c1de017"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/github/advisory-review/pull/14604"
+        },
+        {
+          "type": "WEB",
+          "url": "https://docs.pylonsproject.org/projects/waitress/en/latest/#security-fixes"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/GVDHR2DNKCNQ7YQXISJ45NT4IQDX3LJ7/"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/LYEOTGWJZVKPRXX2HBNVIYWCX73QYPM5/"
+        },
+        {
+          "type": "WEB",
+          "url": "https://access.redhat.com/errata/RHSA-2020:0720"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2019-68",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "11d9e138125ad46e951027184b13242a3c1de017",
+      "authored_at": "2019-12-24T15:18:05+01:00",
+      "committed_at": "2019-12-24T15:18:05+01:00",
+      "message": "Merge pull request from GHSA-m5ff-3wj3-8ph4\n\nHTTP header-field stricter validation",
+      "url": "https://github.com/Pylons/waitress/commit/11d9e138125ad46e951027184b13242a3c1de017"
+    },
+    "pull_requests": [
+      {
+        "status": "not_found",
+        "url": "https://github.com/github/advisory-review/pull/14604"
+      }
+    ],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-18T23:52:29+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

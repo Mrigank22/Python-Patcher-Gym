@@ -428,6 +428,77 @@ def _grade_in_child(task_id: str, candidate_path: str, sandbox: str,
     return out
 
 
+def _grade_in_subprocess(task_id: str, candidate_path: str, sandbox: str,
+                         timeout_s: float) -> dict:
+    """The trust split for platforms without ``fork`` (Windows): the untrusted
+    half runs in a *fresh interpreter* (``--child``) instead of a forked child.
+
+    Same guarantees as :func:`_grade_in_child`: the child inherits no handles
+    (so neither the verdict pipe nor this process's stdin, which carried the
+    outer nonce), and it stamps its report with an inner nonce ``n2`` that it
+    holds only in its main thread while the candidate runs in a worker thread.
+    Its stdout is shared with the candidate, which is why ``n2`` is required.
+    """
+    import secrets
+    import subprocess
+
+    n2 = secrets.token_hex(16)
+    req = json.dumps({"task_id": task_id, "candidate_path": candidate_path,
+                      "sandbox": sandbox, "n2": n2, "timeout_s": timeout_s})
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("CSE_VERDICT_FD", "CSE_VERDICT_HANDLE")}
+    try:
+        p = subprocess.run([sys.executable, "-m", "cybersec_env._grade_worker", "--child"],
+                           input=req.encode("utf-8"), capture_output=True, cwd=sandbox,
+                           env=env, close_fds=True, timeout=timeout_s + 2)
+        lines = p.stdout.decode("utf-8", "replace").splitlines()
+    except subprocess.TimeoutExpired:
+        lines = []
+    for line in reversed(lines):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(msg, dict) and msg.get("n2") == n2 and isinstance(msg.get("out"), dict):
+            return msg["out"]
+    return {"ok": False, "error": "no_child_verdict", "functional": [], "security": []}
+
+
+def _child_main() -> None:
+    """Entry point of the untrusted half spawned by :func:`_grade_in_subprocess`."""
+    import threading
+
+    req = json.loads(sys.stdin.readline() or "{}")
+    n2 = req.get("n2", "")  # lives only in this (main) thread's frame
+    sys.stdin.close()
+    # The parent may be killed on timeout without taking this process with it
+    # (no process groups on Windows), so never outlive the grading budget.
+    watchdog = threading.Timer(float(req.get("timeout_s") or 8) + 1, os._exit, args=(1,))
+    watchdog.daemon = True
+    watchdog.start()
+    _harden(req["sandbox"])
+    box = {}
+
+    def _work():
+        try:
+            box["out"] = _run(req["task_id"], req["candidate_path"], req["sandbox"])
+        except BaseException as exc:  # pragma: no cover
+            box["out"] = {"ok": False, "error": f"worker_error: {type(exc).__name__}: {exc}",
+                          "functional": [], "security": []}
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    t.join()
+    out = box.get("out", {"ok": False, "error": "no_thread_result",
+                          "functional": [], "security": []})
+    sys.stdout.write("\n" + json.dumps({"n2": n2, "out": out}) + "\n")
+    sys.stdout.flush()
+    os._exit(0)
+
+
 def _run_no_fork(task_id: str, candidate_path: str, sandbox: str) -> dict:
     """Fallback for platforms without ``os.fork`` (e.g. Windows): run inline.
     The OS jail and audit hook still apply; only the trust split is absent."""
@@ -453,11 +524,17 @@ def main() -> None:
         verdict_fd = int(os.environ.get("CSE_VERDICT_FD", ""))
     except ValueError:
         verdict_fd = 1
+    if os.name == "nt" and os.environ.get("CSE_VERDICT_HANDLE"):
+        import msvcrt
+        verdict_fd = msvcrt.open_osfhandle(int(os.environ["CSE_VERDICT_HANDLE"]), os.O_WRONLY)
 
     try:
         if hasattr(os, "fork") and verdict_fd != 1:
             out = _grade_in_child(request["task_id"], request["candidate_path"],
                                   sandbox, verdict_fd)
+        elif verdict_fd != 1:
+            out = _grade_in_subprocess(request["task_id"], request["candidate_path"],
+                                       sandbox, float(request.get("timeout_s") or 8))
         else:
             out = _run_no_fork(request["task_id"], request["candidate_path"], sandbox)
     except BaseException as exc:  # pragma: no cover - last-resort guard
@@ -473,4 +550,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    _child_main() if "--child" in sys.argv[1:] else main()

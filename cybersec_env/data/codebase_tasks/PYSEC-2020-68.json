@@ -1,0 +1,142 @@
+{
+  "id": "PYSEC-2020-68",
+  "aliases": [
+    "CVE-2020-26250",
+    "GHSA-384w-5v3f-q499"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "oauthenticator",
+  "repo": {
+    "owner": "jupyterhub",
+    "name": "oauthenticator",
+    "url": "https://github.com/jupyterhub/oauthenticator"
+  },
+  "base_commit": "a156b3befc850ad8d6f3019fa42953aec494e63b",
+  "fix_commit": "a4aac191c16cf6281f3d346615aefa75702b02d7",
+  "python_requires": ">=3.6",
+  "changed_source_files": [
+    "oauthenticator/bitbucket.py",
+    "oauthenticator/cilogon.py",
+    "oauthenticator/github.py",
+    "oauthenticator/gitlab.py",
+    "oauthenticator/google.py",
+    "oauthenticator/oauth2.py"
+  ],
+  "changed_test_files": [
+    "oauthenticator/tests/test_bitbucket.py",
+    "oauthenticator/tests/test_github.py",
+    "oauthenticator/tests/test_gitlab.py",
+    "oauthenticator/tests/test_google.py"
+  ],
+  "source_patch": "diff --git a/oauthenticator/bitbucket.py b/oauthenticator/bitbucket.py\nindex a3d2060..709d0c3 100644\n--- a/oauthenticator/bitbucket.py\n+++ b/oauthenticator/bitbucket.py\n@@ -28,14 +28,11 @@ def _api_headers(access_token):\n \n class BitbucketOAuthenticator(OAuthenticator):\n \n-    _deprecated_aliases = {\n+    _deprecated_oauth_aliases = {\n         \"team_whitelist\": (\"allowed_teams\", \"0.12.0\"),\n+        **OAuthenticator._deprecated_oauth_aliases,\n     }\n \n-    @observe(*list(_deprecated_aliases))\n-    def _deprecated_trait(self, change):\n-        super()._deprecated_trait(change)\n-\n     login_service = \"Bitbucket\"\n     client_id_env = 'BITBUCKET_CLIENT_ID'\n     client_secret_env = 'BITBUCKET_CLIENT_SECRET'\ndiff --git a/oauthenticator/cilogon.py b/oauthenticator/cilogon.py\nindex 09c680d..127e9ec 100644\n--- a/oauthenticator/cilogon.py\n+++ b/oauthenticator/cilogon.py\n@@ -44,14 +44,11 @@ class CILogonLoginHandler(OAuthLoginHandler):\n \n \n class CILogonOAuthenticator(OAuthenticator):\n-    _deprecated_aliases = {\n+    _deprecated_oauth_aliases = {\n         \"idp_whitelist\": (\"allowed_idps\", \"0.12.0\"),\n+        **OAuthenticator._deprecated_oauth_aliases,\n     }\n \n-    @observe(*list(_deprecated_aliases))\n-    def _deprecated_trait(self, change):\n-        super()._deprecated_trait(change)\n-\n     login_service = \"CILogon\"\n \n     client_id_env = 'CILOGON_CLIENT_ID'\ndiff --git a/oauthenticator/github.py b/oauthenticator/github.py\nindex 2697d9d..8708329 100644\n--- a/oauthenticator/github.py\n+++ b/oauthenticator/github.py\n@@ -37,14 +37,11 @@ class GitHubOAuthenticator(OAuthenticator):\n     # set scopes via config, e.g.\n     # c.GitHubOAuthenticator.scope = ['read:org']\n \n-    _deprecated_aliases = {\n+    _deprecated_oauth_aliases = {\n         \"github_organization_whitelist\": (\"allowed_organizations\", \"0.12.0\"),\n+        **OAuthenticator._deprecated_oauth_aliases,\n     }\n \n-    @observe(*list(_deprecated_aliases))\n-    def _deprecated_trait(self, change):\n-        super()._deprecated_trait(change)\n-\n     login_service = \"GitHub\"\n \n     github_url = Unicode(\"https://github.com\", config=True)\ndiff --git a/oauthenticator/gitlab.py b/oauthenticator/gitlab.py\nindex 50ce226..cf8fd44 100644\n--- a/oauthenticator/gitlab.py\n+++ b/oauthenticator/gitlab.py\n@@ -37,15 +37,12 @@ class GitLabOAuthenticator(OAuthenticator):\n     # set scopes via config, e.g.\n     # c.GitLabOAuthenticator.scope = ['read_user']\n \n-    _deprecated_aliases = {\n+    _deprecated_oauth_aliases = {\n         \"gitlab_group_whitelist\": (\"allowed_gitlab_groups\", \"0.12.0\"),\n-        \"gitlab_project_id_whitelist\": (\"allowed_project_ids\", \"0.12.0\")\n+        \"gitlab_project_id_whitelist\": (\"allowed_project_ids\", \"0.12.0\"),\n+        **OAuthenticator._deprecated_oauth_aliases,\n     }\n \n-    @observe(*list(_deprecated_aliases))\n-    def _deprecated_trait(self, change):\n-        super()._deprecated_trait(change)\n-\n     login_service = \"GitLab\"\n \n     client_id_env = 'GITLAB_CLIENT_ID'\ndiff --git a/oauthenticator/google.py b/oauthenticator/google.py\nindex 4e90800..7e3f77e 100644\n--- a/oauthenticator/google.py\n+++ b/oauthenticator/google.py\n@@ -30,14 +30,11 @@ def check_user_in_groups(member_groups, allowed_groups):\n \n \n class GoogleOAuthenticator(OAuthenticator, GoogleOAuth2Mixin):\n-    _deprecated_aliases = {\n+    _deprecated_oauth_aliases = {\n         \"google_group_whitelist\": (\"allowed_google_groups\", \"0.12.0\"),\n+        **OAuthenticator._deprecated_oauth_aliases,\n     }\n \n-    @observe(*list(_deprecated_aliases))\n-    def _deprecated_trait(self, change):\n-        super()._deprecated_trait(change)\n-\n     google_api_url = Unicode(\"https://www.googleapis.com\", config=True)\n \n     @default('google_api_url')\ndiff --git a/oauthenticator/oauth2.py b/oauthenticator/oauth2.py\nindex 8a8841f..40b2087 100644\n--- a/oauthenticator/oauth2.py\n+++ b/oauthenticator/oauth2.py\n@@ -347,11 +347,12 @@ class OAuthenticator(Authenticator):\n     async def authenticate(self, handler, data=None):\n         raise NotImplementedError()\n \n+    _deprecated_oauth_aliases = {}\n \n-    def _deprecated_trait(self, change):\n+    def _deprecated_oauth_trait(self, change):\n         \"\"\"observer for deprecated traits\"\"\"\n         old_attr = change.name\n-        new_attr, version = self._deprecated_aliases.get(old_attr)\n+        new_attr, version = self._deprecated_oauth_aliases.get(old_attr)\n         new_value = getattr(self, new_attr)\n         if new_value != change.new:\n             # only warn if different\n@@ -366,3 +367,11 @@ class OAuthenticator(Authenticator):\n                 )\n             )\n             setattr(self, new_attr, change.new)\n+\n+    def __init__(self, **kwargs):\n+        # observe deprecated config names in oauthenticator\n+        if self._deprecated_oauth_aliases:\n+            self.observe(\n+                self._deprecated_oauth_trait, names=list(self._deprecated_oauth_aliases)\n+            )\n+        super().__init__(**kwargs)\n",
+  "test_patch": "diff --git a/oauthenticator/tests/test_bitbucket.py b/oauthenticator/tests/test_bitbucket.py\nindex fa9eeba..ea5e7a6 100644\n--- a/oauthenticator/tests/test_bitbucket.py\n+++ b/oauthenticator/tests/test_bitbucket.py\n@@ -86,16 +86,16 @@ async def test_allowed_teams(bitbucket_client):\n def test_deprecated_config(caplog):\n     cfg = Config()\n     cfg.BitbucketOAuthenticator.team_whitelist = ['red']\n+    cfg.BitbucketOAuthenticator.whitelist = {\"blue\"}\n \n     log = logging.getLogger(\"testlog\")\n     authenticator = BitbucketOAuthenticator(config=cfg, log=log)\n-    assert caplog.record_tuples == [\n-        (\n-            log.name,\n-            logging.WARNING,\n-            'BitbucketOAuthenticator.team_whitelist is deprecated in BitbucketOAuthenticator 0.12.0, use '\n-            'BitbucketOAuthenticator.allowed_teams instead',\n-        )\n-    ]\n+    assert (\n+        log.name,\n+        logging.WARNING,\n+        'BitbucketOAuthenticator.team_whitelist is deprecated in BitbucketOAuthenticator 0.12.0, use '\n+        'BitbucketOAuthenticator.allowed_teams instead',\n+    ) in caplog.record_tuples\n \n     assert authenticator.allowed_teams == {\"red\"}\n+    assert authenticator.allowed_users == {\"blue\"}\ndiff --git a/oauthenticator/tests/test_github.py b/oauthenticator/tests/test_github.py\nindex 38d854b..a88946c 100644\n--- a/oauthenticator/tests/test_github.py\n+++ b/oauthenticator/tests/test_github.py\n@@ -156,16 +156,16 @@ async def test_allowed_org_membership(github_client):\n def test_deprecated_config(caplog):\n     cfg = Config()\n     cfg.GitHubOAuthenticator.github_organization_whitelist = [\"jupy\"]\n+    cfg.Authenticator.whitelist = {\"user1\"}\n \n     log = logging.getLogger(\"testlog\")\n     authenticator = GitHubOAuthenticator(config=cfg, log=log)\n-    assert caplog.record_tuples == [\n-        (\n-            log.name,\n-            logging.WARNING,\n-            'GitHubOAuthenticator.github_organization_whitelist is deprecated in GitHubOAuthenticator 0.12.0, use '\n-            'GitHubOAuthenticator.allowed_organizations instead',\n-        )\n-    ]\n+    assert (\n+        log.name,\n+        logging.WARNING,\n+        'GitHubOAuthenticator.github_organization_whitelist is deprecated in GitHubOAuthenticator 0.12.0, use '\n+        'GitHubOAuthenticator.allowed_organizations instead',\n+    ) in caplog.record_tuples\n \n     assert authenticator.allowed_organizations == {\"jupy\"}\n+    assert authenticator.allowed_users == {\"user1\"}\ndiff --git a/oauthenticator/tests/test_gitlab.py b/oauthenticator/tests/test_gitlab.py\nindex fe2d3b1..7dab575 100644\n--- a/oauthenticator/tests/test_gitlab.py\n+++ b/oauthenticator/tests/test_gitlab.py\n@@ -260,16 +260,16 @@ async def test_allowed_project_ids(gitlab_client):\n def test_deprecated_config(caplog):\n     cfg = Config()\n     cfg.GitLabOAuthenticator.gitlab_group_whitelist = {'red'}\n+    cfg.GitLabOAuthenticator.whitelist = {\"blue\"}\n \n     log = logging.getLogger(\"testlog\")\n     authenticator = GitLabOAuthenticator(config=cfg, log=log)\n-    assert caplog.record_tuples == [\n-        (\n-            log.name,\n-            logging.WARNING,\n-            'GitLabOAuthenticator.gitlab_group_whitelist is deprecated in GitLabOAuthenticator 0.12.0, use '\n-            'GitLabOAuthenticator.allowed_gitlab_groups instead'\n-        )\n-    ]\n+    assert (\n+        log.name,\n+        logging.WARNING,\n+        'GitLabOAuthenticator.gitlab_group_whitelist is deprecated in GitLabOAuthenticator 0.12.0, use '\n+        'GitLabOAuthenticator.allowed_gitlab_groups instead',\n+    ) in caplog.record_tuples\n \n     assert authenticator.allowed_gitlab_groups == {'red'}\n+    assert authenticator.allowed_users == {\"blue\"}\ndiff --git a/oauthenticator/tests/test_google.py b/oauthenticator/tests/test_google.py\nindex 3e6d58f..ed76406 100644\n--- a/oauthenticator/tests/test_google.py\n+++ b/oauthenticator/tests/test_google.py\n@@ -114,16 +114,16 @@ async def test_allowed_google_groups(google_client):\n def test_deprecated_config(caplog):\n     cfg = Config()\n     cfg.GoogleOAuthenticator.google_group_whitelist = {'email.com': ['group']}\n+    cfg.Authenticator.whitelist = {\"user1\"}\n \n     log = logging.getLogger(\"testlog\")\n     authenticator = GoogleOAuthenticator(config=cfg, log=log)\n-    assert caplog.record_tuples == [\n-        (\n-            log.name,\n-            logging.WARNING,\n-            'GoogleOAuthenticator.google_group_whitelist is deprecated in GoogleOAuthenticator 0.12.0, use '\n-            'GoogleOAuthenticator.allowed_google_groups instead',\n-        )\n-    ]\n+    assert (\n+        log.name,\n+        logging.WARNING,\n+        'GoogleOAuthenticator.google_group_whitelist is deprecated in GoogleOAuthenticator 0.12.0, use '\n+        'GoogleOAuthenticator.allowed_google_groups instead',\n+    ) in caplog.record_tuples\n \n     assert authenticator.allowed_google_groups == {'email.com': ['group']}\n+    assert authenticator.allowed_users == {\"user1\"}\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `oauthenticator` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "oauthenticator.tests.test_bitbucket::test_deprecated_config",
+    "oauthenticator.tests.test_github::test_deprecated_config",
+    "oauthenticator.tests.test_gitlab::test_deprecated_config",
+    "oauthenticator.tests.test_google::test_deprecated_config"
+  ],
+  "p2p_tests": [],
+  "test_files": [
+    "oauthenticator/tests/test_bitbucket.py",
+    "oauthenticator/tests/test_github.py",
+    "oauthenticator/tests/test_gitlab.py",
+    "oauthenticator/tests/test_google.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 0,
+  "n_after_pass": 4,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2020-68",
+      "summary": "",
+      "details": "OAuthenticator is an OAuth login mechanism for JupyterHub. In oauthenticator from version 0.12.0 and before 0.12.2, the deprecated (in jupyterhub 1.2) configuration `Authenticator.whitelist`, which should be transparently mapped to `Authenticator.allowed_users` with a warning, is instead ignored by OAuthenticator classes, resulting in the same behavior as if this configuration has not been set. If this is the only mechanism of authorization restriction (i.e. no group or team restrictions in configuration) then all authenticated users will be allowed. Provider-based restrictions, including deprecated values such as `GitHubOAuthenticator.org_whitelist` are **not** affected. All users of OAuthenticator 0.12.0 and 0.12.1 with JupyterHub 1.2 (JupyterHub Helm chart 0.10.0-0.10.5) who use the `admin.whitelist.users` configuration in the jupyterhub helm chart or the `c.Authenticator.whitelist` configuration directly. Users of other deprecated configuration, e.g. `c.GitHubOAuthenticator.team_whitelist` are **not** affected. If you see a log line like this and expect a specific list of allowed usernames: \"[I 2020-11-27 16:51:54.528 JupyterHub app:1717] Not using allowed_users. Any authenticated user will be allowed.\" you are likely affected. Updating oauthenticator to 0.12.2 is recommended. A workaround is to replace the deprecated `c.Authenticator.whitelist = ...` with `c.Authenticator.allowed_users = ...`. If any users have been authorized during this time who should not have been, they must be deleted via the API or admin interface, per the referenced documentation.",
+      "aliases": [
+        "CVE-2020-26250",
+        "GHSA-384w-5v3f-q499"
+      ],
+      "published": "2020-12-01T21:15:00Z",
+      "modified": "2023-11-08T04:03:16.248580Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "oauthenticator",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/jupyterhub/oauthenticator",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "a4aac191c16cf6281f3d346615aefa75702b02d7"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0.12.0"
+                },
+                {
+                  "fixed": "0.12.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "WEB",
+          "url": "https://github.com/jupyterhub/oauthenticator/blob/master/docs/source/changelog.md#0122---2020-11-30"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/jupyterhub/oauthenticator/commit/a4aac191c16cf6281f3d346615aefa75702b02d7"
+        },
+        {
+          "type": "WEB",
+          "url": "https://jupyterhub.readthedocs.io/en/1.2.2/getting-started/authenticators-users-basics.html#add-or-remove-users-from-the-hub"
+        },
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/jupyterhub/oauthenticator/security/advisories/GHSA-384w-5v3f-q499"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2020-68",
+      "related_advisories": [
+        {
+          "id": "GHSA-384w-5v3f-q499",
+          "summary": "Base class whitelist configuration ignored in OAuthenticator",
+          "details": "### Impact\n\n__What goes wrong?__\n\nThe deprecated (in jupyterhub 1.2) configuration `Authenticator.whitelist`, which should be transparently mapped to `Authenticator.allowed_users` with a warning, is instead ignored by OAuthenticator classes, resulting in the same behavior as if this configuration has not been set. If this is the only mechanism of authorization restriction (i.e. no group or team restrictions in configuration) then all authenticated users will be allowed. Provider-based restrictions, including deprecated values such as `GitHubOAuthenticator.org_whitelist` are **not** affected.\n\n__Who is impacted?__\n\nAll users of OAuthenticator 0.12.0 and 0.12.1 with JupyterHub 1.2 (JupyterHub Helm chart 0.10.0-0.10.5) who use the `admin.whitelist.users` configuration in the jupyterhub helm chart or the `c.Authenticator.whitelist` configuration directly. Users of other deprecated configuration, e.g. `c.GitHubOAuthenticator.team_whitelist` are **not** affected.\n\nIf you see a log line like this and expect a specific list of allowed usernames:\n\n```\n[I 2020-11-27 16:51:54.528 JupyterHub app:1717] Not using allowed_users. Any authenticated user will be allowed.\n```\n\nyou are likely affected.\n\n### Patches\n\n- Replacing deprecated `c.Authenticator.whitelist = ...` with `c.Authenticator.allowed_users = ...` avoids the issue.\n- Update oauthenticator to 0.12.2\n- Update jupyterhub helm chart to 0.10.6\n\nIf any users have been authorized during this time who should not have been, they must be deleted via the API or admin interface, [per the documentation](https://jupyterhub.readthedocs.io/en/1.2.2/getting-started/authenticators-users-basics.html#add-or-remove-users-from-the-hub).\n\n### Workarounds\n\nReplacing `c.Authenticator.whitelist = ...` with `c.Authenticator.allowed_users = ...` avoids the issue.\n\nIn the jupyterhub helm chart prior to 0.10.6, this can be done via `hub.extraConfig`:\n\n```yaml\nauth:\n  allowedUsers:\n  - user1\n  - user2\n\nhub:\n  extraConfig:\n    allowedUsers: |\n        # set new field not exposed in helm chart < 0.10.6\n        set_config_if_not_none(c.Authenticator, \"allowed_users\", \"auth.allowedUsers\")\n```\n\n\n### For more information\n\nIf you have any questions or comments about this advisory:\n\n* Open a thread [on the Jupyter forum](http://discourse.jupyter.org)\n* Email us at [<email>](mailto:<email>)",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-384w-5v3f-q499"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "a4aac191c16cf6281f3d346615aefa75702b02d7",
+      "authored_at": "2020-11-30T12:35:25+01:00",
+      "committed_at": "2020-11-30T12:35:25+01:00",
+      "message": "Merge pull request from GHSA-384w-5v3f-q499\n\nfix conflict with deprecations in jupyterhub 1.2",
+      "url": "https://github.com/jupyterhub/oauthenticator/commit/a4aac191c16cf6281f3d346615aefa75702b02d7"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T19:07:34+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

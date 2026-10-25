@@ -76,6 +76,93 @@ def _distinct_existing(paths) -> List[str]:
     return out
 
 
+def windows_inherit_kwargs(fd: int) -> dict:
+    """Windows has no ``pass_fds``: mark ``fd``'s OS handle inheritable and give
+    it to the child as its *only* inherited handle (plus stdio, which
+    ``subprocess`` adds itself). The explicit handle list matters because the
+    grader launches workers from several threads at once: without it a worker
+    would also inherit whatever handle another thread had just made
+    inheritable. The child finds the handle via ``$CSE_VERDICT_HANDLE``."""
+    import msvcrt
+    import subprocess
+
+    handle = msvcrt.get_osfhandle(fd)
+    os.set_handle_inheritable(handle, True)
+    si = subprocess.STARTUPINFO()
+    si.lpAttributeList = {"handle_list": [handle]}
+    return {"startupinfo": si, "close_fds": True}
+
+
+CREATE_SUSPENDED = 0x00000004
+
+
+def windows_job_attach(proc):
+    """Put a process started with ``CREATE_SUSPENDED`` into a fresh Job Object
+    that kills every process in it when the job handle closes, then resume it.
+
+    Windows has no process groups: killing a timed-out worker leaves its
+    children (the venv launcher's interpreter, the spawned untrusted half)
+    running, and a candidate stuck in C code (e.g. catastrophic regex
+    backtracking) holds the GIL, so no in-process watchdog can stop it. Every
+    descendant of a job member joins the job automatically, so closing the job
+    (:func:`windows_job_close`) reaps the whole tree. Starting suspended means
+    the worker cannot spawn anything before it is inside the job.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    k32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                            wintypes.LPVOID, wintypes.DWORD)
+    k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class _Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", _Basic),
+                    ("IoInfo", ctypes.c_ulonglong * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+    info = _Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = (k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))  # 9 = extended
+          and k32.AssignProcessToJobObject(job, int(proc._handle)))
+    # Resume even if the job setup failed, so the worker never hangs suspended.
+    ctypes.WinDLL("ntdll").NtResumeProcess(wintypes.HANDLE(int(proc._handle)))
+    if not ok:
+        k32.CloseHandle(job)
+        raise OSError(ctypes.get_last_error(), "job object setup failed")
+    return job
+
+
+def windows_job_close(job) -> None:
+    """Kill every process still in ``job`` and release it."""
+    import ctypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.TerminateJobObject.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    k32.TerminateJobObject(job, 1)
+    k32.CloseHandle(job)
+
+
 def wrap_command(inner: List[str], *, sandbox_dir: str, repo_root: str,
                  verdict_fd: int) -> Tuple[List[str], dict]:
     """Wrap ``inner`` (the python worker argv) in a bubblewrap jail.
@@ -86,6 +173,8 @@ def wrap_command(inner: List[str], *, sandbox_dir: str, repo_root: str,
     available the inner command is returned unchanged.
     """
     if isolation_level() != "bwrap":
+        if os.name == "nt":
+            return inner, windows_inherit_kwargs(verdict_fd)
         return inner, {"pass_fds": (verdict_fd,)}
 
     # Execute the interpreter by its fully-resolved real path so the jail does

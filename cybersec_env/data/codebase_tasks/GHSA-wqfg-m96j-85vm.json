@@ -1,0 +1,182 @@
+{
+  "id": "GHSA-wqfg-m96j-85vm",
+  "aliases": [
+    "BIT-django-2025-27556",
+    "CVE-2025-27556",
+    "PYSEC-2025-14"
+  ],
+  "cwes": [
+    "CWE-770"
+  ],
+  "severity": "MODERATE",
+  "package": "django",
+  "repo": {
+    "owner": "django",
+    "name": "django",
+    "url": "https://github.com/django/django"
+  },
+  "base_commit": "c68f3516be266cbc3929e51e32ed63d304ac5cc6",
+  "fix_commit": "2cb311f7b069723027fb5def4044d1816d7d2afd",
+  "python_requires": ">= 3.10",
+  "changed_source_files": [
+    "django/core/validators.py",
+    "django/utils/html.py",
+    "django/utils/http.py"
+  ],
+  "changed_test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "source_patch": "diff --git a/django/core/validators.py b/django/core/validators.py\nindex ff9573b..534acdd 100644\n--- a/django/core/validators.py\n+++ b/django/core/validators.py\n@@ -6,6 +6,7 @@ from urllib.parse import urlsplit\n \n from django.core.exceptions import ValidationError\n from django.utils.deconstruct import deconstructible\n+from django.utils.http import MAX_URL_LENGTH\n from django.utils.ipv6 import is_valid_ipv6_address\n from django.utils.regex_helper import _lazy_re_compile\n from django.utils.translation import gettext_lazy as _\n@@ -152,7 +153,7 @@ class URLValidator(RegexValidator):\n     message = _(\"Enter a valid URL.\")\n     schemes = [\"http\", \"https\", \"ftp\", \"ftps\"]\n     unsafe_chars = frozenset(\"\\t\\r\\n\")\n-    max_length = 2048\n+    max_length = MAX_URL_LENGTH\n \n     def __init__(self, schemes=None, **kwargs):\n         super().__init__(**kwargs)\ndiff --git a/django/utils/html.py b/django/utils/html.py\nindex 30b3352..5ac07ba 100644\n--- a/django/utils/html.py\n+++ b/django/utils/html.py\n@@ -12,7 +12,7 @@ from django.core.exceptions import SuspiciousOperation, ValidationError\n from django.core.validators import EmailValidator\n from django.utils.deprecation import RemovedInDjango60Warning\n from django.utils.functional import Promise, cached_property, keep_lazy, keep_lazy_text\n-from django.utils.http import RFC3986_GENDELIMS, RFC3986_SUBDELIMS\n+from django.utils.http import MAX_URL_LENGTH, RFC3986_GENDELIMS, RFC3986_SUBDELIMS\n from django.utils.regex_helper import _lazy_re_compile\n from django.utils.safestring import SafeData, SafeString, mark_safe\n from django.utils.text import normalize_newlines\n@@ -40,7 +40,6 @@ VOID_ELEMENTS = frozenset(\n     )\n )\n \n-MAX_URL_LENGTH = 2048\n MAX_STRIP_TAGS_DEPTH = 50\n \n \ndiff --git a/django/utils/http.py b/django/utils/http.py\nindex 2098cbc..65b8eb7 100644\n--- a/django/utils/http.py\n+++ b/django/utils/http.py\n@@ -37,6 +37,7 @@ ASCTIME_DATE = _lazy_re_compile(r\"^\\w{3} %s %s %s %s$\" % (__M, __D2, __T, __Y))\n \n RFC3986_GENDELIMS = \":/?#[]@\"\n RFC3986_SUBDELIMS = \"!$&'()*+,;=\"\n+MAX_URL_LENGTH = 2048\n \n \n def urlencode(query, doseq=False):\n@@ -272,7 +273,10 @@ def url_has_allowed_host_and_scheme(url, allowed_hosts, require_https=False):\n def _url_has_allowed_host_and_scheme(url, allowed_hosts, require_https=False):\n     # Chrome considers any URL with more than two slashes to be absolute, but\n     # urlsplit is not so flexible. Treat any url with three slashes as unsafe.\n-    if url.startswith(\"///\"):\n+    if url.startswith(\"///\") or len(url) > MAX_URL_LENGTH:\n+        # urlsplit does not perform validation of inputs. Unicode normalization\n+        # is very slow on Windows and can be a DoS attack vector.\n+        # https://docs.python.org/3/library/urllib.parse.html#url-parsing-security\n         return False\n     try:\n         url_info = urlsplit(url)\n",
+  "test_patch": "diff --git a/tests/utils_tests/test_http.py b/tests/utils_tests/test_http.py\nindex c04f0a0..a92e65d 100644\n--- a/tests/utils_tests/test_http.py\n+++ b/tests/utils_tests/test_http.py\n@@ -6,6 +6,7 @@ from unittest import mock\n from django.test import SimpleTestCase\n from django.utils.datastructures import MultiValueDict\n from django.utils.http import (\n+    MAX_URL_LENGTH,\n     base36_to_int,\n     content_disposition_header,\n     escape_leading_slashes,\n@@ -273,6 +274,21 @@ class URLHasAllowedHostAndSchemeTests(unittest.TestCase):\n                     False,\n                 )\n \n+    def test_max_url_length(self):\n+        allowed_host = \"example.com\"\n+        max_extra_characters = \"é\" * (MAX_URL_LENGTH - len(allowed_host) - 1)\n+        max_length_boundary_url = f\"{allowed_host}/{max_extra_characters}\"\n+        cases = [\n+            (max_length_boundary_url, True),\n+            (max_length_boundary_url + \"ú\", False),\n+        ]\n+        for url, expected in cases:\n+            with self.subTest(url=url):\n+                self.assertIs(\n+                    url_has_allowed_host_and_scheme(url, allowed_hosts={allowed_host}),\n+                    expected,\n+                )\n+\n \n class URLSafeBase64Tests(unittest.TestCase):\n     def test_roundtrip(self):\n",
+  "summary": "Django Potential Denial of Service (DoS) on Windows",
+  "era": "post_cutoff",
+  "verified": true,
+  "instruction": "The package `django` has a security vulnerability (CWE-770). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "tests.utils_tests.test_http.ContentDispositionHeaderTests::test_basic",
+    "tests.utils_tests.test_http.ETagProcessingTests::test_parsing",
+    "tests.utils_tests.test_http.ETagProcessingTests::test_quoting",
+    "tests.utils_tests.test_http.EscapeLeadingSlashesTests::test",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_http_date",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_asctime",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_asctime_nonascii_digits",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc1123",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_rfc850",
+    "tests.utils_tests.test_http.HttpDateProcessingTests::test_parsing_year_less_than_70",
+    "tests.utils_tests.test_http.IsSameDomainTests::test_bad",
+    "tests.utils_tests.test_http.IsSameDomainTests::test_good",
+    "tests.utils_tests.test_http.ParseHeaderParameterTests::test_basic",
+    "tests.utils_tests.test_http.ParseHeaderParameterTests::test_rfc2231_parsing",
+    "tests.utils_tests.test_http.ParseHeaderParameterTests::test_rfc2231_wrong_title",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_allowed_hosts_str",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_bad_urls",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_basic_auth",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_good_urls",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_max_url_length",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_no_allowed_hosts",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_secure_param_https_urls",
+    "tests.utils_tests.test_http.URLHasAllowedHostAndSchemeTests::test_secure_param_non_https_urls",
+    "tests.utils_tests.test_http.URLSafeBase64Tests::test_roundtrip"
+  ],
+  "p2p_tests": [],
+  "test_files": [
+    "tests/utils_tests/test_http.py"
+  ],
+  "python": "3.10",
+  "n_before_pass": 0,
+  "n_after_pass": 24,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "GHSA-wqfg-m96j-85vm",
+      "summary": "Django Potential Denial of Service (DoS) on Windows ",
+      "details": "An issue was discovered in Django 5.1 before 5.1.8 and 5.0 before 5.0.14. The NFKC normalization is slow on Windows. As a consequence, django.contrib.auth.views.LoginView, django.contrib.auth.views.LogoutView, and django.views.i18n.set_language are subject to a potential denial-of-service attack via certain inputs with a very large number of Unicode characters.",
+      "aliases": [
+        "BIT-django-2025-27556",
+        "CVE-2025-27556",
+        "PYSEC-2025-14"
+      ],
+      "published": "2025-04-02T15:31:37Z",
+      "modified": "2025-09-25T09:27:20.004567Z",
+      "severity": "MODERATE",
+      "cwe_ids": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "package": "django",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "5.0"
+                },
+                {
+                  "fixed": "5.0.14"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": "django",
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "5.1"
+                },
+                {
+                  "fixed": "5.1.8"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-27556"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/2cb311f7b069723027fb5def4044d1816d7d2afd"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/39e2297210d9d2938c75fc911d45f0e863dc4821"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/8c6871b097b6c49d2a782c0d80d908bcbe2116f1"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/django/django/commit/edc2716d01a6fdd84b173c02031695231bcee1f8"
+        },
+        {
+          "type": "WEB",
+          "url": "https://docs.djangoproject.com/en/dev/releases/security"
+        },
+        {
+          "type": "PACKAGE",
+          "url": "https://github.com/django/django"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/pypa/advisory-database/tree/main/vulns/django/PYSEC-2025-14.yaml"
+        },
+        {
+          "type": "WEB",
+          "url": "https://groups.google.com/g/django-announce"
+        },
+        {
+          "type": "WEB",
+          "url": "https://www.djangoproject.com/weblog/2025/apr/02/security-releases"
+        },
+        {
+          "type": "WEB",
+          "url": "http://www.openwall.com/lists/oss-security/2025/04/02/2"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/GHSA-wqfg-m96j-85vm",
+      "related_advisories": [],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "2cb311f7b069723027fb5def4044d1816d7d2afd",
+      "authored_at": "2025-03-06T15:24:56+01:00",
+      "committed_at": "2025-04-02T10:23:46+02:00",
+      "message": "[5.2.x] Fixed CVE-2025-27556 -- Mitigated potential DoS in url_has_allowed_host_and_scheme() on Windows.\n\nThank you sw0rd1ight for the report.\n\nBackport of 39e2297210d9d2938c75fc911d45f0e863dc4821 from main.",
+      "url": "https://github.com/django/django/commit/2cb311f7b069723027fb5def4044d1816d7d2afd"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T02:14:17+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}

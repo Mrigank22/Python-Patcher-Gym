@@ -1,0 +1,131 @@
+{
+  "id": "PYSEC-2020-215",
+  "aliases": [
+    "BIT-jupyter-base-notebook-2020-26215",
+    "BIT-jupyter-notebook-2020-26215",
+    "CVE-2020-26215",
+    "GHSA-c7vm-f5p4-8fqh"
+  ],
+  "cwes": [
+    "unknown"
+  ],
+  "severity": "",
+  "package": "notebook",
+  "repo": {
+    "owner": "jupyter",
+    "name": "notebook",
+    "url": "https://github.com/jupyter/notebook"
+  },
+  "base_commit": "d8308e13803ba1c6e92f129381e615af6c6e00d3",
+  "fix_commit": "3cec4bbe21756de9f0c4bccf18cf61d840314d74",
+  "python_requires": ">=3.5",
+  "changed_source_files": [
+    "notebook/base/handlers.py"
+  ],
+  "changed_test_files": [
+    "notebook/tests/test_paths.py"
+  ],
+  "source_patch": "diff --git a/notebook/base/handlers.py b/notebook/base/handlers.py\nindex 743f7ba..5e92104 100755\n--- a/notebook/base/handlers.py\n+++ b/notebook/base/handlers.py\n@@ -854,13 +854,18 @@ class APIVersionHandler(APIHandler):\n \n class TrailingSlashHandler(web.RequestHandler):\n     \"\"\"Simple redirect handler that strips trailing slashes\n-    \n+\n     This should be the first, highest priority handler.\n     \"\"\"\n-    \n+\n     def get(self):\n-        self.redirect(self.request.uri.rstrip('/'))\n-    \n+        path, *rest = self.request.uri.partition(\"?\")\n+        # trim trailing *and* leading /\n+        # to avoid misinterpreting repeated '//'\n+        path = \"/\" + path.strip(\"/\")\n+        new_uri = \"\".join([path, *rest])\n+        self.redirect(new_uri)\n+\n     post = put = get\n \n \n@@ -911,6 +916,7 @@ class RedirectWithParams(web.RequestHandler):\n         url = sep.join([self._url, self.request.query])\n         self.redirect(url, permanent=self._permanent)\n \n+\n class PrometheusMetricsHandler(IPythonHandler):\n     \"\"\"\n     Return prometheus metrics for this notebook server\n",
+  "test_patch": "diff --git a/notebook/tests/test_paths.py b/notebook/tests/test_paths.py\nindex f49303a..c4f7517 100644\n--- a/notebook/tests/test_paths.py\n+++ b/notebook/tests/test_paths.py\n@@ -3,10 +3,13 @@ import re\n from nose.tools import assert_regex, assert_not_regex\n \n from notebook.base.handlers import path_regex\n+from notebook.utils import url_path_join\n+from .launchnotebook import NotebookTestBase\n \n # build regexps that tornado uses:\n path_pat = re.compile('^' + '/x%s' % path_regex + '$')\n \n+\n def test_path_regex():\n     for path in (\n         '/x',\n@@ -30,3 +33,18 @@ def test_path_regex_bad():\n         '/y/x/foo',\n     ):\n         assert_not_regex(path, path_pat)\n+\n+\n+class RedirectTestCase(NotebookTestBase):\n+    def test_trailing_slash(self):\n+        for uri, expected in (\n+            (\"/notebooks/mynotebook/\", \"/notebooks/mynotebook\"),\n+            (\"////foo///\", \"/foo\"),\n+            (\"//example.com/\", \"/example.com\"),\n+            (\"/has/param/?hasparam=true\", \"/has/param?hasparam=true\"),\n+        ):\n+            r = self.request(\"GET\", uri, allow_redirects=False)\n+            print(uri, expected)\n+            assert r.status_code == 302\n+            assert \"Location\" in r.headers\n+            assert r.headers[\"Location\"] == url_path_join(self.url_prefix, expected)\n",
+  "summary": "",
+  "era": "legacy",
+  "verified": true,
+  "instruction": "The package `notebook` has a security vulnerability (unknown). A regression test describing the required secure behaviour has been added to the repository. Modify the package source so the test passes while keeping existing behaviour intact. Do not edit tests.",
+  "f2p_tests": [
+    "notebook.tests.test_paths.RedirectTestCase::test_trailing_slash"
+  ],
+  "p2p_tests": [
+    "notebook.tests.test_paths::test_path_regex",
+    "notebook.tests.test_paths::test_path_regex_bad"
+  ],
+  "test_files": [
+    "notebook/tests/test_paths.py"
+  ],
+  "python": "3.11",
+  "n_before_pass": 2,
+  "n_after_pass": 3,
+  "reference": {
+    "schema": 1,
+    "advisory": {
+      "id": "PYSEC-2020-215",
+      "summary": "",
+      "details": "Jupyter Notebook before version 6.1.5 has an Open redirect vulnerability. A maliciously crafted link to a notebook server could redirect the browser to a different website. All notebook servers are technically affected, however, these maliciously crafted links can only be reasonably made for known notebook server hosts. A link to your notebook server may appear safe, but ultimately redirect to a spoofed server on the public internet. The issue is patched in version 6.1.5.",
+      "aliases": [
+        "BIT-jupyter-base-notebook-2020-26215",
+        "BIT-jupyter-notebook-2020-26215",
+        "CVE-2020-26215",
+        "GHSA-c7vm-f5p4-8fqh"
+      ],
+      "published": "2020-11-18T22:15:00Z",
+      "modified": "2025-10-09T07:06:38.322155Z",
+      "severity": null,
+      "cwe_ids": [],
+      "affected": [
+        {
+          "package": "notebook",
+          "ranges": [
+            {
+              "type": "GIT",
+              "repo": "https://github.com/jupyter/notebook",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "3cec4bbe21756de9f0c4bccf18cf61d840314d74"
+                }
+              ]
+            },
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.1.5"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/jupyter/notebook/security/advisories/GHSA-c7vm-f5p4-8fqh"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/jupyter/notebook/commit/3cec4bbe21756de9f0c4bccf18cf61d840314d74"
+        },
+        {
+          "type": "WEB",
+          "url": "https://lists.debian.org/debian-lts-announce/2020/12/msg00004.html"
+        }
+      ],
+      "source": "https://api.osv.dev/v1/vulns/PYSEC-2020-215",
+      "related_advisories": [
+        {
+          "id": "GHSA-c7vm-f5p4-8fqh",
+          "summary": "Open redirect in Jupyter Notebook",
+          "details": "### Impact\n_What kind of vulnerability is it? Who is impacted?_\n\nOpen redirect vulnerability - a maliciously crafted link to a notebook server could redirect the browser to a different website.\n\nAll notebook servers are technically affected, however, these maliciously crafted links can only be reasonably made for known notebook server hosts. A link to your notebook server may *appear* safe, but ultimately redirect to a spoofed server on the public internet.\n\n### Patches\n\n_Has the problem been patched? What versions should users upgrade to?_\n\nPatched in notebook 6.1.5\n\n\n### References\n\n[OWASP page on open redirects](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html)\n\n### For more information\n\nIf you have any questions or comments about this advisory, or vulnerabilities to report, please email our security list [<email>](mailto:<email>).\n\nCredit: zhuonan li of Alibaba Application Security Team",
+          "source": "https://api.osv.dev/v1/vulns/GHSA-c7vm-f5p4-8fqh"
+        }
+      ],
+      "status": "ok"
+    },
+    "fix_commit": {
+      "status": "ok",
+      "sha": "3cec4bbe21756de9f0c4bccf18cf61d840314d74",
+      "authored_at": "2020-11-06T13:50:59+01:00",
+      "committed_at": "2020-11-06T13:50:59+01:00",
+      "message": "Merge pull request from GHSA-c7vm-f5p4-8fqh\n\n[6.x] Fix GHSA-c7vm-f5p4-8fqh",
+      "url": "https://github.com/jupyter/notebook/commit/3cec4bbe21756de9f0c4bccf18cf61d840314d74"
+    },
+    "pull_requests": [],
+    "pull_requests_status": "ok",
+    "enriched_at": "2026-10-19T18:57:25+00:00",
+    "note": "Human-written context from OSV and the project's git history. Answer-bearing: never include in model prompts."
+  }
+}
